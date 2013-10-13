@@ -1,0 +1,24 @@
+C:\Documents and Settings\Administrator\My Documents\Visual Studio 2005\Projects\TestClient\TestClient\obj\Debug\ResolveAssemblyReference.cache
+C:\Documents and Settings\Administrator\My Documents\Visual Studio 2005\Projects\TestClient\TestClient\obj\Debug\TestClient.Properties.Resources.resources
+C:\Documents and Settings\Administrator\My Documents\Visual Studio 2005\Projects\TestClient\TestClient\obj\Debug\TestClient.csproj.GenerateResource.Cache
+C:\Documents and Settings\Administrator\My Documents\Visual Studio 2005\Projects\TestClient\TestClient\obj\Debug\TestClient.Client.resources
+C:\Documents and Settings\Administrator\My Documents\Visual Studio 2005\Projects\TestClient\TestClient\bin\Debug\TestClient.exe
+C:\Documents and Settings\Administrator\My Documents\Visual Studio 2005\Projects\TestClient\TestClient\bin\Debug\TestClient.pdb
+C:\Documents and Settings\Administrator\My Documents\Visual Studio 2005\Projects\TestClient\TestClient\obj\Debug\TestClient.exe
+C:\Documents and Settings\Administrator\My Documents\Visual Studio 2005\Projects\TestClient\TestClient\obj\Debug\TestClient.pdb
+E:\X31_backup\TestClient\TestClient\obj\Debug\TestClient.exe
+E:\X31_backup\TestClient\TestClient\obj\Debug\TestClient.pdb
+E:\X31_backup\TestClient\TestClient\bin\Debug\TestClient.exe
+E:\X31_backup\TestClient\TestClient\bin\Debug\TestClient.pdb
+E:\X31_backup\TestClient\TestClient\obj\Debug\ResolveAssemblyReference.cache
+E:\X31_backup\TestClient\TestClient\obj\Debug\TestClient.Client.resources
+E:\X31_backup\TestClient\TestClient\obj\Debug\TestClient.Properties.Resources.resources
+E:\X31_backup\TestClient\TestClient\obj\Debug\TestClient.csproj.GenerateResource.Cache
+E:\Dropbox\X31_backup\TestClient\TestClient\obj\Debug\TestClient.exe
+E:\Dropbox\X31_backup\TestClient\TestClient\obj\Debug\TestClient.pdb
+E:\Dropbox\X31_backup\TestClient\TestClient\bin\Debug\TestClient.exe
+E:\Dropbox\X31_backup\TestClient\TestClient\bin\Debug\TestClient.pdb
+E:\Dropbox\X31_backup\TestClient\TestClient\obj\Debug\ResolveAssemblyReference.cache
+E:\Dropbox\X31_backup\TestClient\TestClient\obj\Debug\TestClient.Client.resources
+E:\Dropbox\X31_backup\TestClient\TestClient\obj\Debug\TestClient.Properties.Resources.resources
+E:\Dropbox\X31_backup\TestClient\TestClient\obj\Debug\TestClient.csproj.GenerateResource.Cache
