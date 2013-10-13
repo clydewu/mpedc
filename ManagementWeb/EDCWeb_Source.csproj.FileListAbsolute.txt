@@ -1,0 +1,5 @@
+C:\[Projects]\05_JUNTAI\10201EDC\CODE\EDCWeb_Source\EDCWeb_Source\bin\EDCWeb_Source.dll
+C:\[Projects]\05_JUNTAI\10201EDC\CODE\EDCWeb_Source\EDCWeb_Source\bin\EDCWeb_Source.pdb
+C:\[Projects]\05_JUNTAI\10201EDC\CODE\EDCWeb_Source\EDCWeb_Source\obj\Debug\ResolveAssemblyReference.cache
+C:\[Projects]\05_JUNTAI\10201EDC\CODE\EDCWeb_Source\EDCWeb_Source\obj\Debug\EDCWeb_Source.dll
+C:\[Projects]\05_JUNTAI\10201EDC\CODE\EDCWeb_Source\EDCWeb_Source\obj\Debug\EDCWeb_Source.pdb

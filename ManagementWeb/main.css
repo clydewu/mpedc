@@ -1,0 +1,41 @@
+﻿body
+{
+	text-align: left;
+	background: #F5F5F5;
+	vertical-align: middle;
+}
+#center
+{
+	margin-right: auto;
+	margin-left: auto;
+}
+
+td
+{
+	font-size: 10pt;
+	font-family: 新細明體;
+}
+
+.page
+{
+	margin: 0px;
+	padding: 0px;
+	width: 800px;
+}
+TABLE
+{
+	table-border-color-light: #CC9966;
+	table-border-color-dark: #000000;
+	border-color: #000000;
+	color: #000000;
+}
+
+
+HR
+{
+	color: #000000;
+}
+TD
+{
+	border-color: #000000;
+}
