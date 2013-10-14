@@ -43,6 +43,7 @@ const char kProjListFile[] = "./projects.list";
 const char kEDCLogFile[] = "./edc_tmp.log";
 const char kServerIni[] = "./edc_setup.ini";
 const char kNetworkIni[] = "./edc_network.ini";
+const char kSetupIpCmd[] = "./edc_setip.sh";
 const char kTempFileSuffix[] = ".tmp";
 const int kMaxEmpListSize = MAX_EMP_LIST_SIZE;
 const int kMaxEDCListSize = MAX_EDC_LIST_SIZE;
@@ -1824,6 +1825,7 @@ int setup_state(EDC_CTX* p_ctx)
         return kFailure;
     }
 
+    // Clean screen and set LED
     if(lcd_clean_scr(p_ctx->lkp_ctx) != kSuccess)
     {
         fprintf(stderr, "Can not clean screen.\n");
@@ -1848,6 +1850,7 @@ int setup_state(EDC_CTX* p_ctx)
     memset(new_gateway, 0, kMaxIPLen + 1);
     memset(new_server_ip, 0, kMaxIPLen + 1);
 
+    // Set EDC ID
     snprintf(cur_line, kMaxLineWord + 1, "%s%s", STR_SETUP_CURRENT, p_ctx->edc_id);
     show_line(p_ctx, 0, STR_SETUP_EDC_ID);
     show_line(p_ctx, 1, cur_line);
@@ -1857,6 +1860,7 @@ int setup_state(EDC_CTX* p_ctx)
         strncpy(new_edc_id , p_ctx->edc_id, kMaxEDCIDLen + 1);
     }
 
+    // Set EDC IP
     while (kTrue)
     {
         snprintf(cur_line, kMaxLineWord + 1, "%s", p_ctx->edc_ip);
@@ -1880,6 +1884,7 @@ int setup_state(EDC_CTX* p_ctx)
         break;
     }
 
+    // Set Submask
     while (kTrue)
     {
         snprintf(cur_line, kMaxLineWord + 1, "%s", p_ctx->submask);
@@ -1903,6 +1908,7 @@ int setup_state(EDC_CTX* p_ctx)
         break;
     }
 
+    // Set Gateway
     while (kTrue)
     {
         snprintf(cur_line, kMaxLineWord + 1, "%s", p_ctx->gateway);
@@ -1926,6 +1932,7 @@ int setup_state(EDC_CTX* p_ctx)
         break;
     }
 
+    // Set Server IP
     while (kTrue)
     {
         snprintf(cur_line, kMaxLineWord + 1, "%s", p_ctx->server_ip);
@@ -1949,6 +1956,7 @@ int setup_state(EDC_CTX* p_ctx)
         break;
     }
 
+    // Set Server Port
     while (kTrue)
     {
         snprintf(cur_line, kMaxLineWord + 1, "%d", p_ctx->server_port);
@@ -1988,19 +1996,6 @@ int setup_state(EDC_CTX* p_ctx)
     fprintf(stderr, "CLD: SERVER_PORT: %s.\n", new_server_port);
     */
 
-    // Reconnect to server
-    if (disconnect_server(p_ctx) != kSuccess)
-    {
-        fprintf(stderr, "Connect to server failure");
-        return kFailure;
-    }
-
-    if (connect_server(p_ctx) != kSuccess)
-    {
-        fprintf(stderr, "Connect to server failure");
-        return kFailure;
-    }
-
     // Write back to file
     if(!(fp_setup = fopen(kServerIni, "w")))
     {
@@ -2035,6 +2030,25 @@ int setup_state(EDC_CTX* p_ctx)
         return kFailure;
     }
     fclose(fp_network);
+
+    // Re-connect to server
+    if (disconnect_server(p_ctx) != kSuccess)
+    {
+        fprintf(stderr, "Connect to server failure");
+        return kFailure;
+    }
+
+    if (system(kSetupIpCmd) != kSuccess)
+    {
+        fprintf(stderr, "Reset network setting fail.");
+        return kFailure;
+    }
+
+    if (connect_server(p_ctx) != kSuccess)
+    {
+        fprintf(stderr, "Connect to server failure");
+        return kFailure;
+    }
 
     // Restart threads
     if (pthread_create(&(p_ctx->sync_list_thr), NULL,

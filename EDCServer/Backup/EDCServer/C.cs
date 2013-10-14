@@ -19,16 +19,5 @@ namespace EDCServer
         public const string kMonoA4 = "2";
         public const string kColorA3 = "3";
         public const string kColorA4 = "4";
-
-        public const string kIniFile = "EDC_server_setup.ini";
-        public const string kKeySection = "EDCServer";
-        public const string kKeySource = "DataSource";
-        public const string kKeyDB = "Database";
-        public const string kKeyUser = "User";
-        public const string kKeyPassword = "Password";
-        public const string kKeyPort = "Port";
-        public const int kSize = 256;
-
-        public const int kDefPort = 3000;
     }
 }

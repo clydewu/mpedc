@@ -29,7 +29,6 @@
         private void InitializeComponent()
         {
             this.strSrvBtn = new System.Windows.Forms.Button();
-            this.logList = new System.Windows.Forms.ListBox();
             this.SuspendLayout();
             // 
             // strSrvBtn
@@ -42,26 +41,16 @@
             this.strSrvBtn.UseVisualStyleBackColor = true;
             this.strSrvBtn.Click += new System.EventHandler(this.strSrvBtn_Click);
             // 
-            // logList
-            // 
-            this.logList.FormattingEnabled = true;
-            this.logList.ItemHeight = 12;
-            this.logList.Location = new System.Drawing.Point(25, 71);
-            this.logList.Name = "logList";
-            this.logList.Size = new System.Drawing.Size(241, 172);
-            this.logList.TabIndex = 1;
-            // 
             // Form1
             // 
             this.AutoScaleDimensions = new System.Drawing.SizeF(6F, 12F);
             this.AutoScaleMode = System.Windows.Forms.AutoScaleMode.Font;
             this.ClientSize = new System.Drawing.Size(292, 273);
-            this.Controls.Add(this.logList);
             this.Controls.Add(this.strSrvBtn);
             this.Name = "Form1";
             this.Text = "Form1";
-            this.FormClosing += new System.Windows.Forms.FormClosingEventHandler(this.form_close);
             this.Load += new System.EventHandler(this.Form1_Load);
+            this.FormClosing += new System.Windows.Forms.FormClosingEventHandler(this.form_close);
             this.ResumeLayout(false);
 
         }
@@ -69,7 +58,6 @@
         #endregion
 
         private System.Windows.Forms.Button strSrvBtn;
-        private System.Windows.Forms.ListBox logList;
     }
 }
 

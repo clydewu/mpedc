@@ -16,20 +16,16 @@ namespace EDCServer
         private Thread listenThread;
         private SqlConnection sqlConn;
         private List<TcpClient> connectClient;
-        private int port;
-        private Form1 serverfrm;
 
-        public TcpServer(Config config, Form1 frm)
+        public TcpServer()
         {
             this.connectClient = new List<TcpClient>();
-            this.sqlConn = new SqlConnection(System.String.Format("Data Source={0};User Id={2}; Password={3}; Initial Catalog={1}",
-                config.source, config.db, config.user, config.password));
-            this.serverfrm = frm;
+            this.sqlConn = new SqlConnection("Data Source=localhost\\SQLEXPRESS;User Id=kpmg_user; Password=kpmg; Initial Catalog=edc_data");
+            sqlConn.Open(); 
         }
 
         public void Start()
         {
-            this.sqlConn.Open();
             this.tcpListener = new TcpListener(IPAddress.Any, 3000);
             this.listenThread = new Thread(new ThreadStart(ListenForClients));
             this.listenThread.Start();
@@ -56,7 +52,6 @@ namespace EDCServer
                 //blocks until a client has connected to the server
                 TcpClient client = this.tcpListener.AcceptTcpClient();
                 connectClient.Add(client);
-
                 System.Diagnostics.Debug.WriteLine("New Connect, total:" + connectClient.Count);
                 //create a thread to handle communication 
                 //with connected client

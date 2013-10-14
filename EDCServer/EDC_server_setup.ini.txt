@@ -1,0 +1,6 @@
+[EDCServer]
+DataSource=127.0.0.1,1443
+Database=kpmg
+User=sa
+Password=1234
+ListenPort=3000
