@@ -267,6 +267,8 @@ typedef struct _edc_ctx
     PROJ_DATA       proj_list[MAX_PROJ_LIST_SIZE];
     pthread_mutex_t proj_mutex;
 
+    int             stop_thrs;
+
     pthread_t       sync_list_thr;
 
     pthread_t       sync_log_thr;
@@ -334,8 +336,10 @@ int dl_remote_list(EDC_CTX*, const char*, const char*);
 int get_remote_list(EDC_CTX*,const char*,const char*, pthread_mutex_t*);
 
 // Thread
+int stop_sync_thr(EDC_CTX*);
 void sync_thr_func(void*);
 void sync_log_thr_func(void*);
+
 
 
 
@@ -421,6 +425,33 @@ INIT_FAIL:
     return ret_code;
 }
 
+int stop_sync_thr(EDC_CTX* p_ctx)
+{
+    if (!p_ctx)
+    {
+        fprintf(stderr, "Parameter Fail!\n");
+        return kFailure;
+    }
+
+    p_ctx->stop_thrs = kTrue;
+
+    if (pthread_join(p_ctx->sync_list_thr, NULL) != kSuccess)
+    {
+        fprintf(stderr, "Can not join sync_list thread.\n");
+        return kFailure;
+    }
+
+    if (pthread_join(p_ctx->sync_log_thr, NULL) != kSuccess)
+    {
+        fprintf(stderr, "Can not join sync_log thread.\n");
+        return kFailure;
+    }
+
+    p_ctx->stop_thrs = kFalse;
+
+    return kSuccess;
+}
+
 void sync_list_thr_func(void* ctx)
 {
     EDC_CTX* p_ctx;
@@ -437,6 +468,12 @@ void sync_list_thr_func(void* ctx)
     {
         //sleep(kSyncListInterval);
         sleep(3);
+
+        if (p_ctx->stop_thrs == kTrue)
+        {
+            break;
+        }
+
         if (p_ctx->connected)
         {
             if (sync_lists(p_ctx) != kSuccess)
@@ -482,6 +519,11 @@ void sync_log_thr_func(void *ctx)
     {
         sleep(kSyncLogInterval);
         sync_success = kFalse;
+
+        if (p_ctx->stop_thrs == kTrue)
+        {
+            break;
+        }
 
         if (p_ctx->connected)
         {
@@ -898,6 +940,7 @@ int init(EDC_CTX *p_ctx, const char* com_ini_file)
         return kFailure;
     }
 
+    p_ctx->stop_thrs = kFalse;
     if (pthread_create(&(p_ctx->sync_list_thr), NULL,
                 (void*)sync_list_thr_func, (void*)p_ctx) != kSuccess)
     {
@@ -1297,8 +1340,10 @@ int dl_remote_list(EDC_CTX *p_ctx, const char* sync_cmd, const char* file_name)
         return kFailure;
     }
 
+    // If database of server is empty, there will return 0
+    // and the list file will be a empty file
     if ((total_recv = sock_read(sock,
-            list_buf, kMaxEmpListBuf)) <= 0)
+            list_buf, kMaxEmpListBuf)) < 0)
     {
         fprintf(stderr, "Read response from server fail.\n");
         return kFailure;
@@ -1433,15 +1478,15 @@ size_t sock_read(int sock, char* buffer, size_t buf_len)
                 if (total_recv > buf_len - 1)
                 {
                     recv_len = total_recv - (buf_len -1);
-                    fprintf(stderr, "List buffer too small.\n");
+                    //fprintf(stderr, "List buffer too small.\n");
                     return kFailure;
                 }
                 strncpy(curr, recv_ptr, recv_len);
                 curr += recv_len;
                 *curr = '\0';
 
-                //fprintf(stderr, "CLD:total_recv:%d, content-length: %d\n", total_recv, content_len);
-                if (content_len > 0 && total_recv >= content_len)
+                //fprintf(stderr, "CLD: total_recv:%d, content-length: %d\n", total_recv, content_len);
+                if (content_len >= 0 && total_recv >= content_len)
                 {
                     //Get all data due to exceed contetn_length
                     break;
@@ -1508,6 +1553,8 @@ int idle_state(EDC_CTX *p_ctx)
         {
             if (in_key != 0 )
             {
+
+                fprintf(stderr, "Input key: %d.\n", in_key);
                 if (in_key == kASCIIFn)
                 {
                     p_ctx->state = SETUP;
@@ -1800,28 +1847,9 @@ int setup_state(EDC_CTX* p_ctx)
         return kFailure;
     }
 
-    // Stop Threads
-    if (pthread_cancel(p_ctx->sync_list_thr) != kSuccess)
+    if (stop_sync_thr(p_ctx) != kSuccess)
     {
-        fprintf(stderr, "Can not cancel sync_list thread.\n");
-        return kFailure;
-    }
-
-    if (pthread_cancel(p_ctx->sync_log_thr) != kSuccess)
-    {
-        fprintf(stderr, "Can not cancel sync_log thread.\n");
-        return kFailure;
-    }
-
-    if (pthread_join(p_ctx->sync_list_thr, NULL) != kSuccess)
-    {
-        fprintf(stderr, "Can not join sync_list thread.\n");
-        return kFailure;
-    }
-
-    if (pthread_join(p_ctx->sync_log_thr, NULL) != kSuccess)
-    {
-        fprintf(stderr, "Can not join sync_log thread.\n");
+        fprintf(stderr, "Can't stop threads.\n");
         return kFailure;
     }
 
