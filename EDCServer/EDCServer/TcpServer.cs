@@ -112,18 +112,21 @@ namespace EDCServer
                 {
                     case C.kSyncEmpCmd:
                         send_buf = encoder.GetBytes(get_employee_list(protocol_list));
+                        System.Diagnostics.Debug.WriteLine(send_buf);
                         clientStream.Write(send_buf, 0, send_buf.Length);
                         //clientStream.Write(send_buf, 0, 0);
                         clientStream.Flush();
                         break;
                     case C.kSyncEDCCmd:
                         send_buf = encoder.GetBytes(get_edc_list(protocol_list));
+                        System.Diagnostics.Debug.WriteLine(send_buf);
                         clientStream.Write(send_buf, 0, send_buf.Length);
                         //clientStream.Write(send_buf, 0, 0);
                         clientStream.Flush();
                         break;
                     case C.kSyncProjCmd:
                         send_buf = encoder.GetBytes(get_proj_list(protocol_list));
+                        System.Diagnostics.Debug.WriteLine(send_buf);
                         clientStream.Write(send_buf, 0, send_buf.Length);
                         //clientStream.Write(send_buf, 0, 0);
                         clientStream.Flush();
