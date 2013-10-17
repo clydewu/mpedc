@@ -41,9 +41,9 @@ const char kEmpListFile[] = "./employee.list";
 const char kEDCListFile[] = "./edc.list";
 const char kProjListFile[] = "./projects.list";
 const char kEDCLogFile[] = "./edc_tmp.log";
-const char kServerIni[] = "./edc_setup.ini";
-const char kNetworkIni[] = "./edc_network.ini";
-const char kSetupIpCmd[] = "./edc_setip.sh";
+const char kServerIni[] = "./edc_setup.conf";
+const char kNetworkIni[] = "./edc_network.conf";
+const char kSetupIpCmd[] = "./edc_net_setup.sh";
 const char kTempFileSuffix[] = ".tmp";
 const int kMaxEmpListSize = MAX_EMP_LIST_SIZE;
 const int kMaxEDCListSize = MAX_EDC_LIST_SIZE;
@@ -267,8 +267,6 @@ typedef struct _edc_ctx
     PROJ_DATA       proj_list[MAX_PROJ_LIST_SIZE];
     pthread_mutex_t proj_mutex;
 
-    int             stop_thrs;
-
     pthread_t       sync_list_thr;
 
     pthread_t       sync_log_thr;
@@ -311,11 +309,12 @@ int is_valid_card(EDC_CTX*);
 int buzzer(int);
 int get_str_from_keypad(EDC_CTX*, const char*, char*, const int, const int);
 int get_ipv4_from_keypad(EDC_CTX*, const char*, char*, const int, const int);
+int load_server_set(EDC_CTX*, const char*);
+int load_network_set(EDC_CTX*, const char*);
 
 // List Utilities
 int sync_lists(EDC_CTX*);
 int load_local_lists(EDC_CTX*);
-int load_server_set(EDC_CTX*, const char*);
 int load_employee_list(EMPLOYEE_DATA*, const int, const char*, pthread_mutex_t*);
 int load_edc_list(EDC_DATA*, const int, const char*, pthread_mutex_t*);
 int load_proj_list(PROJ_DATA*, const int, const char*, pthread_mutex_t*);
@@ -433,7 +432,17 @@ int stop_sync_thr(EDC_CTX* p_ctx)
         return kFailure;
     }
 
-    p_ctx->stop_thrs = kTrue;
+    if (pthread_cancel(p_ctx->sync_list_thr) != kSuccess)
+    {
+        fprintf(stderr, "Can not join sync_list thread.\n");
+        return kFailure;
+    }
+
+    if (pthread_cancel(p_ctx->sync_log_thr) != kSuccess)
+    {
+        fprintf(stderr, "Can not join sync_list thread.\n");
+        return kFailure;
+    }
 
     if (pthread_join(p_ctx->sync_list_thr, NULL) != kSuccess)
     {
@@ -446,8 +455,6 @@ int stop_sync_thr(EDC_CTX* p_ctx)
         fprintf(stderr, "Can not join sync_log thread.\n");
         return kFailure;
     }
-
-    p_ctx->stop_thrs = kFalse;
 
     return kSuccess;
 }
@@ -468,11 +475,7 @@ void sync_list_thr_func(void* ctx)
     {
         //sleep(kSyncListInterval);
         sleep(3);
-
-        if (p_ctx->stop_thrs == kTrue)
-        {
-            break;
-        }
+        pthread_testcancel();
 
         if (p_ctx->connected)
         {
@@ -518,12 +521,7 @@ void sync_log_thr_func(void *ctx)
     while (kTrue)
     {
         sleep(kSyncLogInterval);
-        sync_success = kFalse;
-
-        if (p_ctx->stop_thrs == kTrue)
-        {
-            break;
-        }
+        pthread_testcancel();
 
         if (p_ctx->connected)
         {
@@ -916,10 +914,15 @@ int init(EDC_CTX *p_ctx, const char* com_ini_file)
         return kFailure;
     }
 
-    //TODO set ip/server_ip/edc_id from ini file
     if (load_server_set(p_ctx, kServerIni) != kSuccess)
     {
         fprintf(stderr, "Load server setup failure.\n");
+        return kFailure;
+    }
+
+    if (load_network_set(p_ctx, kNetworkIni) != kSuccess)
+    {
+        fprintf(stderr, "Load network setup failure.\n");
         return kFailure;
     }
 
@@ -940,7 +943,6 @@ int init(EDC_CTX *p_ctx, const char* com_ini_file)
         return kFailure;
     }
 
-    p_ctx->stop_thrs = kFalse;
     if (pthread_create(&(p_ctx->sync_list_thr), NULL,
                 (void*)sync_list_thr_func, (void*)p_ctx) != kSuccess)
     {
@@ -1278,7 +1280,7 @@ int load_server_set(EDC_CTX *p_ctx, const char *ini_file)
 
     if (!(fpSetting = fopen(ini_file, "r")))
     {
-        fprintf(stderr, "Can not open ini file.\n");
+        fprintf(stderr, "Can not open server ini file: %s.\n", ini_file);
         return RET_ERR_SETUP_FILE;
     }
 
@@ -1302,10 +1304,47 @@ int load_server_set(EDC_CTX *p_ctx, const char *ini_file)
     }
     fclose(fpSetting);
 
-
     fprintf(stderr, "Server ip: %s\n", p_ctx->server_ip);
     fprintf(stderr, "Server port: %d\n", p_ctx->server_port);
     fprintf(stderr, "id: %s\n", p_ctx->edc_id);
+
+    return kSuccess;
+}
+
+int load_network_set(EDC_CTX *p_ctx, const char *ini_file)
+{
+    FILE *fpSetting;
+    char line[kMaxReadLineLen];
+    int len;
+
+    if (!ini_file)
+    {
+        fprintf(stderr, "Parameter Fail!\n");
+        return kFailure;
+    }
+
+    if (!(fpSetting = fopen(ini_file, "r")))
+    {
+        fprintf(stderr, "Can not open network ini file: %s.\n", ini_file);
+        return RET_ERR_SETUP_FILE;
+    }
+
+    if (!feof(fpSetting))
+    {
+        fgets(line, kMaxReadLineLen, fpSetting);
+        FileGetValue(line, p_ctx->edc_ip, &len);
+
+        fgets(line, kMaxReadLineLen, fpSetting);
+        FileGetValue(line, p_ctx->submask, &len);
+
+        fgets(line, kMaxReadLineLen, fpSetting);
+        FileGetValue(line, p_ctx->gateway, &len);
+    }
+    fclose(fpSetting);
+
+    fprintf(stderr, "EDC ip: %s\n", p_ctx->edc_ip);
+    fprintf(stderr, "Submask: %s\n", p_ctx->submask);
+    fprintf(stderr, "Gateway: %s\n", p_ctx->gateway);
 
     return kSuccess;
 }
@@ -1657,6 +1696,8 @@ int quota_state(EDC_CTX* p_ctx)
     EMPLOYEE_DATA *curr_emp;
     EDC_DATA *curr_edc;
     int time_remain;
+    PRINTERCOUNT_V2 ptr_counter;
+    PRINTERTYPE total_usage;
 
     unsigned char in_key;
 
@@ -1685,15 +1726,13 @@ int quota_state(EDC_CTX* p_ctx)
         fprintf(stderr, "Append EDC log failure\n");
         return kFailure;
     }
-    //TODO
-    // Init print
-    /*
+
+    // Init print, start to statistic
     if (ptr_count_init(p_ctx->lkp_ctx) != kSuccess)
     {
         fprintf(stderr, "Initial print counter failure\n");
         return kFailure;
     }
-    */
 
     // Ref is_valid_card()
     curr_emp = &(p_ctx->emp_list[p_ctx->curr_emp - 1]);
@@ -1727,7 +1766,8 @@ int quota_state(EDC_CTX* p_ctx)
         {
             if (in_key != 17 )
             {
-                //User input enject
+                //User input ENJECT
+                //TODO set timeout as a short time
                 break;
             }
         }
@@ -1742,20 +1782,18 @@ int quota_state(EDC_CTX* p_ctx)
         }
     }
 
-    //TODO
     //Get statistic info from print
-    /*
-    if (ptr_count_get(p_ctx->lkp_ctx, prt_counter) != kSuccess)
+    if (ptr_count_get(p_ctx->lkp_ctx, &ptr_counter) != kSuccess)
     {
         fprintf(stderr, "Get print counter failure\n");
         return kFailure;
     }
 
     // Get use status
-    if ( (prt_count.u8_work_status & 0x01) == 1 )
+    if ( (ptr_counter.u8_work_status & 0x01) == 1 )
     {
         // Operation Finish
-        if (gen_cost_log(p_ctx, prt_count))
+        if (gen_cost_log(p_ctx, ptr_counter))
         {
             fprintf(stderr, "Generate print EDC log failure\n");
             return kFailure;
@@ -1765,7 +1803,7 @@ int quota_state(EDC_CTX* p_ctx)
     }
 
     // Get paper-track status
-    if ( (prt_count.u8_work_status & 0x02) == 1)
+    if ( (ptr_counter.u8_work_status & 0x02) == 1)
     {
         // Lack paper
     }
@@ -1776,11 +1814,28 @@ int quota_state(EDC_CTX* p_ctx)
         fprintf(stderr, "Stop print counter failure\n");
         return kFailure;
     }
-    */
     return kSuccess;
 }
 
-/*
+int get_total_usage(PRINTERCOUNT_V2 *p_pc, PRINTERTYPE *p_tu)
+{
+    unsigned int gray_a;
+    int gray_b;
+    int color_a;
+    int color_b;
+
+    if (!p_pc || ! p_tu)
+    {
+        fprintf(stderr, "Parameter Fail!\n");
+        return kFailure;
+    }
+
+    p_tu = (unsigned int)((p_pc->photocopy).u16_gray_scale_a) + (unsigned int)((p_pc->photocopy).u16_double_gray_scale_a);
+        //p_pc->print.u16_gray_scale_a + p_pc->print.u16_double_gray_scale_a * 2;
+
+
+}
+
 int gen_cost_log(EDC_CTX* p_ctx, PRINTERCOUNT *p_prt)
 {
     int mono_a3;
@@ -1812,7 +1867,6 @@ int gen_cost_log(EDC_CTX* p_ctx, PRINTERCOUNT *p_prt)
     }
 
 }
-*/
 
 int scanning_state(EDC_CTX* p_ctx)
 {
@@ -1895,7 +1949,7 @@ int setup_state(EDC_CTX* p_ctx)
         show_line(p_ctx, 0, STR_SETUP_EDC_IP);
         show_line(p_ctx, 1, cur_line);
         show_line(p_ctx, 3, STR_EMPTY);
-        if (get_ipv4_from_keypad(p_ctx, NULL,
+        if (get_ipv4_from_keypad(p_ctx, STR_EMPTY,
                     new_edc_ip, kMaxIPLen + 1, 2) == kGetKeyPadCancel)
         {
             strncpy(new_edc_ip , p_ctx->edc_ip, kMaxIPLen + 1);
@@ -1919,7 +1973,7 @@ int setup_state(EDC_CTX* p_ctx)
         show_line(p_ctx, 0, STR_SETUP_SUBMASK);
         show_line(p_ctx, 1, cur_line);
         show_line(p_ctx, 3, STR_EMPTY);
-        if (get_ipv4_from_keypad(p_ctx, NULL,
+        if (get_ipv4_from_keypad(p_ctx, STR_EMPTY,
                     new_submask, kMaxIPLen + 1, 2) == kGetKeyPadCancel)
         {
             strncpy(new_submask , p_ctx->submask, kMaxIPLen + 1);
@@ -1943,7 +1997,7 @@ int setup_state(EDC_CTX* p_ctx)
         show_line(p_ctx, 0, STR_SETUP_GATEWAY);
         show_line(p_ctx, 1, cur_line);
         show_line(p_ctx, 3, STR_EMPTY);
-        if (get_ipv4_from_keypad(p_ctx, NULL,
+        if (get_ipv4_from_keypad(p_ctx, STR_EMPTY,
                     new_gateway, kMaxIPLen + 1, 2) == kGetKeyPadCancel)
         {
             strncpy(new_gateway, p_ctx->gateway, kMaxIPLen + 1);
@@ -1967,7 +2021,7 @@ int setup_state(EDC_CTX* p_ctx)
         show_line(p_ctx, 0, STR_SETUP_SERVER_IP);
         show_line(p_ctx, 1, cur_line);
         show_line(p_ctx, 3, STR_EMPTY);
-        if (get_ipv4_from_keypad(p_ctx, NULL,
+        if (get_ipv4_from_keypad(p_ctx, STR_EMPTY,
                     new_server_ip, kMaxIPLen + 1, 2) == kGetKeyPadCancel)
         {
             strncpy(new_server_ip, p_ctx->server_ip, kMaxIPLen + 1);
@@ -1991,7 +2045,7 @@ int setup_state(EDC_CTX* p_ctx)
         show_line(p_ctx, 0, STR_SETUP_SERVER_PORT);
         show_line(p_ctx, 1, cur_line);
         show_line(p_ctx, 3, STR_EMPTY);
-        if (get_str_from_keypad(p_ctx, STR_SETUP_SERVER_PORT,
+        if (get_str_from_keypad(p_ctx, STR_EMPTY,
                     new_server_port, kMaxPortLen + 1, 2) == kGetKeyPadCancel)
         {
             //strncpy(new_server_port , p_ctx->server_port, kMaxPortLen + 1);
@@ -2225,7 +2279,7 @@ int get_ipv4_from_keypad(EDC_CTX *p_ctx, const char* prompt,
                 break;
             }
         }
-        snprintf(scr_line_str, kMaxLineWord + 1, "%s", buf);
+        snprintf(scr_line_str, kMaxLineWord + 1, "%s%s", prompt, buf);
         show_line(p_ctx, scr_line, scr_line_str);
         usleep(kMicroPerSecond / 10);
     }
