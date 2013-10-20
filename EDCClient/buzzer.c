@@ -34,7 +34,7 @@
 #define MAX_EDC_LIST_SIZE   (2)
 #define MAX_PROJ_LIST_SIZE  (128)
 #define MAX_MEM_EDC_LOG     (256)
-#define MAX_EDC_LOG_LEN     (128)
+#define MAX_EDC_LOG_LEN     (256)
 #define MAX_LOG_TYPE_LEN    (16)
 
 const char kEmpListFile[] = "./employee.list";
@@ -77,6 +77,8 @@ const int kASCIIFirstVisiable = 32;
 const int kASCIILastVisiable = 127;
 const int kASCII_zero = 48;
 const int kASCII_nine = 57;
+
+const int kMaxPrtPage = 11;
 
 const char kSetupStrServerIP[] = "server";
 const char kSetupStrServerPort[] = "port";
@@ -192,10 +194,10 @@ const char PTN_CARD_INVALID[] = "INVALID %s";
 const char PTN_CARD_ENJECT[] = "ENJECT %s";
 const char PTN_CARD_TIMEOUT[] = "TIMEOUT %s";
 
-const char PTN_PAPER_BB[] = "BB %d";
-const char PTN_PAPER_BS[] = "BS %d";
-const char PTN_PAPER_CB[] = "CB %d";
-const char PTN_PAPER_CS[] = "CS %d";
+const char PTN_PAPER_GRAY_A[] = "GA%d:%d ";
+const char PTN_PAPER_GRAY_B[] = "GB%d:%d ";
+const char PTN_PAPER_COLOR_A[] = "CA%d:%d ";
+const char PTN_PAPER_COLOR_B[] = "CB%d:%d ";
 
 typedef struct _com_ctx
 {
@@ -325,6 +327,12 @@ int sync_log(EDC_CTX*);
 int save_log_to_local(EDC_CTX*, const char*);
 int get_cur_YmdHMS_r(char*, int);
 int append_edc_log(EDC_CTX*, const EDC_LOG_TYPE, const char*);
+int gen_cost_log(EDC_CTX*, const EDC_LOG_TYPE, PRINTERTYPE*);
+
+// Printer Utilities
+int usage_dup_check(PRINTERTYPE* , PRINTERTYPE*);
+int print_printertype(PRINTERTYPE *);
+int init_printertype(PRINTERTYPE *usage);
 
 // Network Utilities
 int connect_server(EDC_CTX*);
@@ -1592,7 +1600,6 @@ int idle_state(EDC_CTX *p_ctx)
         {
             if (in_key != 0 )
             {
-
                 fprintf(stderr, "Input key: %d.\n", in_key);
                 if (in_key == kASCIIFn)
                 {
@@ -1628,6 +1635,7 @@ int idle_state(EDC_CTX *p_ctx)
             if (is_valid_card(p_ctx))
             {
                 p_ctx->state = QUOTA;
+                buzzer((kMicroPerSecond / 10) * 1);
             }
             else
             {
@@ -1681,7 +1689,8 @@ int invalid_card_state(EDC_CTX *p_ctx)
 
     memset(&p_ctx->curr_card_sn, 0, kMaxCardSNLen);
 
-    buzzer((kMicroPerSecond / 10) * 3);
+    buzzer((kMicroPerSecond / 10) * 1);
+    buzzer((kMicroPerSecond / 10) * 1);
     usleep(kMicroPerSecond * 5);
     p_ctx->state = IDLE;
     return kSuccess;
@@ -1695,9 +1704,10 @@ int quota_state(EDC_CTX* p_ctx)
     char remain_line[kMaxLineWord];
     EMPLOYEE_DATA *curr_emp;
     EDC_DATA *curr_edc;
-    int time_remain;
+    int utime_remain;
     PRINTERCOUNT_V2 ptr_counter;
-    PRINTERTYPE total_usage;
+    PRINTERTYPE print_usage;
+    PRINTERTYPE photocopy_usage;
 
     unsigned char in_key;
 
@@ -1727,6 +1737,16 @@ int quota_state(EDC_CTX* p_ctx)
         return kFailure;
     }
 
+    /*
+    int r;
+    r = ptr_select(0);
+    if (r != kSuccess)
+    {
+        fprintf(stderr, "Set COM port printer failure: %d\n", r);
+        return kFailure;
+    }
+    */
+
     // Init print, start to statistic
     if (ptr_count_init(p_ctx->lkp_ctx) != kSuccess)
     {
@@ -1734,10 +1754,11 @@ int quota_state(EDC_CTX* p_ctx)
         return kFailure;
     }
 
+
     // Ref is_valid_card()
     curr_emp = &(p_ctx->emp_list[p_ctx->curr_emp - 1]);
     curr_edc = &(p_ctx->edc_list[0]);
-    time_remain = curr_edc->limit_time;
+    utime_remain = curr_edc->limit_time * kMicroPerSecond;
 
     snprintf(quota_line, kMaxLineWord, "%s:%d",
             STR_QUOTA, curr_emp->init_quota);
@@ -1754,6 +1775,8 @@ int quota_state(EDC_CTX* p_ctx)
     show_line(p_ctx, 1, mono_line);
     show_line(p_ctx, 2, color_line);
 
+    init_printertype(&(ptr_counter.photocopy));
+    print_printertype(&(ptr_counter.photocopy));
     while (kTrue)
     {
         //catch input and update screen
@@ -1764,49 +1787,68 @@ int quota_state(EDC_CTX* p_ctx)
         }
         else
         {
-            if (in_key != 17 )
+            if (in_key == kASCIIEject )
             {
-                //User input ENJECT
-                //TODO set timeout as a short time
+                //User input ENJECT, set remain_sec less than 3sec
+                //TODO ask, this value should more than how long a paper be printed
+                utime_remain = (utime_remain > kMicroPerSecond * 3)?(kMicroPerSecond * 3):utime_remain;
+            }
+        }
+
+        //Get statistic info from printer
+        if (ptr_count_get(p_ctx->lkp_ctx, &ptr_counter) != kSuccess)
+        {
+            fprintf(stderr, "Get print counter failure\n");
+            return kFailure;
+        }
+
+            utime_remain -= kMicroPerSecond / 10;
+            if (utime_remain <= 0)
+            {
+                p_ctx->state = IDLE;
+                break;
+            }
+        /*
+        // duplicate and check modification
+        if (usage_dup_check(&(ptr_counter.photocopy), &photocopy_usage) ||
+            usage_dup_check(&(ptr_counter.print), &print_usage)  == kFalse)
+        {
+            // If counter didn't be modified, continue countdown
+            utime_remain -= kMicroPerSecond / 10;
+            if (utime_remain <= 0)
+            {
+                p_ctx->state = IDLE;
                 break;
             }
         }
+        */
+        usleep(kMicroPerSecond / 10);
         snprintf(remain_line, kMaxLineWord, "%s: %d",
-                STR_REMAIN_SEC, time_remain);
-        show_line(p_ctx, 3, remain_line);
-        usleep(kMicroPerSecond);
-        if (time_remain-- <= 0)
-        {
-            p_ctx->state = IDLE;
-            break;
-        }
-    }
+                STR_REMAIN_SEC, (int)(utime_remain / kMicroPerSecond));
 
-    //Get statistic info from print
-    if (ptr_count_get(p_ctx->lkp_ctx, &ptr_counter) != kSuccess)
-    {
-        fprintf(stderr, "Get print counter failure\n");
-        return kFailure;
+        show_line(p_ctx, 3, remain_line);
     }
 
     // Get use status
-    if ( (ptr_counter.u8_work_status & 0x01) == 1 )
-    {
-        // Operation Finish
-        if (gen_cost_log(p_ctx, ptr_counter))
-        {
-            fprintf(stderr, "Generate print EDC log failure\n");
-            return kFailure;
-
-        }
-
-    }
-
+    //if ( (ptr_counter.u8_work_status & 0x01) == 1 ) {}
     // Get paper-track status
-    if ( (ptr_counter.u8_work_status & 0x02) == 1)
+    //if ( (ptr_counter.u8_work_status & 0x02) == 1) {}
+
+    print_printertype(&(ptr_counter.photocopy));
+    
+    /*
+    if (gen_cost_log(p_ctx, COPY, &ptr_counter.photocopy) != kSuccess)
     {
-        // Lack paper
+        fprintf(stderr, "Generate EDC log of copy failure\n");
+        return kFailure;
     }
+
+    if (gen_cost_log(p_ctx, PRINT, &ptr_counter.print) != kSuccess)
+    {
+        fprintf(stderr, "Generate EDC log of copy failure\n");
+        return kFailure;
+    }
+    */
 
     //release print
     if (ptr_count_stop(p_ctx->lkp_ctx) != kSuccess)
@@ -1817,55 +1859,140 @@ int quota_state(EDC_CTX* p_ctx)
     return kSuccess;
 }
 
-int get_total_usage(PRINTERCOUNT_V2 *p_pc, PRINTERTYPE *p_tu)
+int print_printertype(PRINTERTYPE *usage)
 {
-    unsigned int gray_a;
-    int gray_b;
-    int color_a;
-    int color_b;
+    int i;
 
-    if (!p_pc || ! p_tu)
+    for(i = 0; i < kMaxPrtPage; i++)
     {
-        fprintf(stderr, "Parameter Fail!\n");
-        return kFailure;
+        fprintf(stderr, "%d %d %d %d %d %d %d %d\n",
+                usage->u16_gray_scale_a[i],
+                usage->u16_gray_scale_b[i],
+                usage->u16_color_a[i],
+                usage->u16_color_b[i],
+                usage->u16_double_gray_scale_a[i],
+                usage->u16_double_gray_scale_b[i],
+                usage->u16_double_color_a[i],
+                usage->u16_double_color_b[i]);
     }
 
-    p_tu = (unsigned int)((p_pc->photocopy).u16_gray_scale_a) + (unsigned int)((p_pc->photocopy).u16_double_gray_scale_a);
-        //p_pc->print.u16_gray_scale_a + p_pc->print.u16_double_gray_scale_a * 2;
-
-
+    return kSuccess;
 }
 
-int gen_cost_log(EDC_CTX* p_ctx, PRINTERCOUNT *p_prt)
+int init_printertype(PRINTERTYPE *usage)
 {
-    int mono_a3;
-    int mono_a4;
-    int color_a3;
-    int color_a4;
-    char edc_log_content[kMaxEDCLogLen];
+    int i;
+    for(i = 0; i < kMaxPrtPage; i++)
+    {
+        usage->u16_gray_scale_a[i] = 0;
+        usage->u16_gray_scale_b[i] = 0;
+        usage->u16_color_a[i] = 0;
+        usage->u16_color_b[i] = 0;
+        usage->u16_double_gray_scale_a[i] = 0;
+        usage->u16_double_gray_scale_b[i] = 0;
+        usage->u16_double_color_a[i] = 0;
+        usage->u16_double_color_b[i] = 0;
+    }
 
-    if (!p_ctx || !p_prt)
+    return 0;
+}
+
+int usage_dup_check(PRINTERTYPE *p_src, PRINTERTYPE *p_dest)
+{
+    int modify = kFalse;
+    int i;
+
+    if (!p_src || ! p_dest)
     {
         fprintf(stderr, "Parameter Fail!\n");
         return kFailure;
     }
 
-    mono_a3 = p_prt->u16_gray_scale_a + p_prt->u16_double_gray_scale_a * 2;
-    mono_a4 = p_prt->u16_gray_scale_b + p_prt->u16_double_gray_scale_b * 2;
-    color_a3 = p_prt->u16_color_a + p_prt->u16_double_color_a * 2;
-    color_a4 = p_prt->u16_color_b + p_prt->u16_double_color_b * 2;
-
-    if (mono_a3 != 0)
+    for (i = 0; i < kMaxPrtPage; i++)
     {
-        snprintf(edc_log_content, kMaxEDCLogLen, PTN_PAPER_BB, mono_a3);
-        //TODO type may need change
-        if (append_edc_log(p_ctx, COPY, edc_log_content))
+        if (p_dest->u16_gray_scale_a[i] != p_src->u16_gray_scale_a[i] ||
+            p_dest->u16_gray_scale_b[i] != p_src->u16_gray_scale_b[i] ||
+            p_dest->u16_color_a[i] != p_src->u16_color_a[i] ||
+            p_dest->u16_color_b[i] != p_src->u16_color_b[i] ||
+            p_dest->u16_double_gray_scale_a[i] != p_src->u16_double_gray_scale_a[i] ||
+            p_dest->u16_double_gray_scale_b[i] != p_src->u16_double_gray_scale_b[i] ||
+            p_dest->u16_double_color_a[i] != p_src->u16_double_color_a[i] ||
+            p_dest->u16_double_color_b[i] != p_src->u16_double_gray_scale_b[i] )
         {
-            fprintf(stderr, "Append EDC log failure\n");
-            return kFailure;
+            modify = kTrue;
+        }
+
+        p_dest->u16_gray_scale_a[i] = p_src->u16_gray_scale_a[i];
+        p_dest->u16_gray_scale_b[i] = p_src->u16_gray_scale_b[i];
+        p_dest->u16_color_a[i] = p_src->u16_color_a[i];
+        p_dest->u16_color_b[i] = p_src->u16_color_b[i];
+        p_dest->u16_double_gray_scale_a[i] = p_src->u16_double_gray_scale_a[i];
+        p_dest->u16_double_gray_scale_b[i] = p_src->u16_double_gray_scale_b[i];
+        p_dest->u16_double_color_a[i] = p_src->u16_double_color_a[i];
+        p_dest->u16_double_color_b[i] = p_src->u16_double_gray_scale_b[i];
+    }
+
+    return modify;
+}
+
+int gen_cost_log(EDC_CTX* p_ctx, const EDC_LOG_TYPE log_type, PRINTERTYPE *usage)
+{
+    char edc_log_content[kMaxEDCLogLen];
+    char temp_str[kMaxEDCLogLen];
+    int gray_a_sum = 0;
+    int gray_b_sum = 0;
+    int color_a_sum = 0;
+    int color_b_sum = 0;
+    int i;
+
+    if (!p_ctx || !usage)
+    {
+        fprintf(stderr, "Parameter Fail!\n");
+        return kFailure;
+    }
+
+    memset(edc_log_content, 0, kMaxEDCLogLen);
+    memset(temp_str, 0, kMaxEDCLogLen);
+
+    for (i = 0; i < kMaxPrtPage; i++)
+    {
+        gray_a_sum = usage->u16_gray_scale_a[i] + usage->u16_double_gray_scale_a[i] * 2;
+        gray_b_sum = usage->u16_gray_scale_b[i] + usage->u16_double_gray_scale_b[i] * 2;
+        color_a_sum = usage->u16_color_a[i] + usage->u16_double_color_a[i] * 2;
+        color_b_sum = usage->u16_color_b[i] + usage->u16_double_color_b[i] * 2;
+
+        if (gray_a_sum != 0)
+        {
+            snprintf(temp_str, kMaxEDCLogLen, PTN_PAPER_GRAY_A, i, gray_a_sum);
+            strncat(edc_log_content, temp_str, kMaxEDCLogLen);
+        }
+
+        if (gray_b_sum != 0)
+        {
+            snprintf(temp_str, kMaxEDCLogLen, PTN_PAPER_GRAY_B, i, gray_b_sum);
+            strncat(edc_log_content, temp_str, kMaxEDCLogLen);
+        }
+
+        if (color_a_sum != 0)
+        {
+            snprintf(temp_str, kMaxEDCLogLen, PTN_PAPER_COLOR_A, i, color_a_sum);
+            strncat(edc_log_content, temp_str, kMaxEDCLogLen);
+        }
+
+        if (color_b_sum != 0)
+        {
+            snprintf(temp_str, kMaxEDCLogLen, PTN_PAPER_COLOR_B, i, color_b_sum);
+            strncat(edc_log_content, temp_str, kMaxEDCLogLen);
         }
     }
 
+    if (append_edc_log(p_ctx, log_type, edc_log_content))
+    {
+        fprintf(stderr, "Append EDC log failure\n");
+        return kFailure;
+    }
+
+    return kSuccess;
 }
 
 int scanning_state(EDC_CTX* p_ctx)

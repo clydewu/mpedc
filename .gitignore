@@ -1,0 +1,5 @@
+*.swp
+EDCServer/EDCServer/obj/*
+EDCServer/EDCServer/bin/*
+EDCClient/cscope.out
+EDCClient/test.out
