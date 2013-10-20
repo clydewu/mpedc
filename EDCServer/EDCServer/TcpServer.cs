@@ -270,15 +270,19 @@ namespace EDCServer
         {
             SqlCommand sql_cmd;
             string[] recv_list;
-            string protocol;
 
-            sql_cmd = new SqlCommand("AppendEDCTempLog", sqlConn);
-            //sql_cmd.Parameters.Add(C.kFieldEDCLog, SqlDbType.NVarChar);
-            //sql_cmd.Parameters[C.kFieldEDCID].Value = edc_id.Trim();
-            sql_cmd.CommandType = System.Data.CommandType.StoredProcedure;
-            if (sql_cmd.ExecuteNonQuery() != 1)
+            recv_list = recv.Split('\n');
+
+            for (int i = 1; i < recv_list.Length; i++)
             {
-                //TODO: error
+                sql_cmd = new SqlCommand("AppendEDCTempLog", sqlConn);
+                sql_cmd.Parameters.Add(C.kFieldEDCLog, SqlDbType.NVarChar);
+                sql_cmd.Parameters[C.kFieldEDCLog].Value = recv_list[i].Trim();
+                sql_cmd.CommandType = System.Data.CommandType.StoredProcedure;
+                if (sql_cmd.ExecuteNonQuery() != 1)
+                {
+                    //TODO: error
+                }
             }
 
             //return true;

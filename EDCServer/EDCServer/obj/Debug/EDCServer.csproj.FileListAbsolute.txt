@@ -1,9 +1,0 @@
-E:\case\kpmg\src\EDCServer\EDCServer\obj\Debug\EDCServer.exe
-E:\case\kpmg\src\EDCServer\EDCServer\obj\Debug\EDCServer.pdb
-E:\case\kpmg\src\EDCServer\EDCServer\bin\Debug\EDCServer.exe
-E:\case\kpmg\src\EDCServer\EDCServer\bin\Debug\EDCServer.pdb
-E:\case\kpmg\src\EDCServer\EDCServer\obj\Debug\EDCServer.csprojResolveAssemblyReference.cache
-E:\case\kpmg\src\EDCServer\EDCServer\obj\Debug\EDCServer.Form1.resources
-E:\case\kpmg\src\EDCServer\EDCServer\obj\Debug\EDCServer.Properties.Resources.resources
-E:\case\kpmg\src\EDCServer\EDCServer\obj\Debug\EDCServer.csproj.GenerateResource.Cache
-E:\case\kpmg\src\EDCServer\EDCServer\bin\Debug\EDC_server_setup.ini
