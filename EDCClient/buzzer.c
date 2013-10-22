@@ -66,7 +66,7 @@ const int kMaxBufferlen = 4096;
 const int kMaxMemEDCLog = MAX_MEM_EDC_LOG;
 const int kMaxEDCLogLen = MAX_EDC_LOG_LEN;
 const int kMaxLogTypeLen = MAX_LOG_TYPE_LEN;
-const int kKeyScanPerSec = 20;
+const int kKeyScanPerSec = 50;
 const int kMaxYmdHMSLen = 20;
 const int kASCIIFn = 16;
 const int kASCIIUp = 17;
@@ -289,13 +289,13 @@ typedef struct _edc_ctx
     OP_STATE        state;
     char            project_code[MAX_PROJECT_LEN + 1];
     char            curr_card_sn[MAX_CARD_SN_LEN + 1];
-    int             curr_emp;
 
     int             server_fd;
     int             connected;
 
     int             emp_num;
     EMPLOYEE_DATA   emp_list[MAX_EMP_LIST_SIZE];
+    int             curr_emp_idx;
     pthread_mutex_t emp_mutex;
 
     int             edc_num;
@@ -523,8 +523,8 @@ void sync_list_thr_func(void* ctx)
 
     while (kTrue)
     {
-        //sleep(kSyncListInterval);
-        sleep(3);
+        sleep(kSyncListInterval);
+        //sleep(3);
         pthread_testcancel();
 
         if (p_ctx->connected)
@@ -682,11 +682,11 @@ int append_edc_log(EDC_CTX *p_ctx, const EDC_LOG_TYPE type, const char *content)
     }
     else
     {
-        if (snprintf(p_ctx->edc_tmp_log[p_ctx->edc_log_num], kMaxEDCLogLen, "%s\t%s\t%s\t%d\%s\t%s",
+        if (snprintf(p_ctx->edc_tmp_log[p_ctx->edc_log_num], kMaxEDCLogLen, "%s\t%s\t%s\t%s\t%s\t%s",
                     TYPE2STR[type],
                     p_ctx->edc_id,
                     p_ctx->project_code,
-                    p_ctx->curr_emp,
+                    p_ctx->emp_list[p_ctx->curr_emp_idx].emp_no,
                     cur_date,
                     content) < 0)
         {
@@ -743,7 +743,7 @@ int save_log_to_local(EDC_CTX *p_ctx, const char *log_tmp_file)
         return kFailure;
     }
 
-    if(!(fp_log = fopen(log_tmp_file, "w")))
+    if(!(fp_log = fopen(log_tmp_file, "a")))
     {
         fprintf(stderr, "Can not open log temp file.\n");
         return kFailure;
@@ -1177,7 +1177,6 @@ int load_local_lists(EDC_CTX *p_ctx)
         return kFailure;
     }
 
-
     if ((p_ctx->emp_num = load_employee_list(
             p_ctx->emp_list, kMaxEmpListSize,
             kEmpListFile, &p_ctx->emp_mutex)) < 0)
@@ -1487,6 +1486,12 @@ int dl_remote_list(EDC_CTX *p_ctx, const char* sync_cmd, const char* file_name)
         return kFailure;
     }
 
+    if (!p_ctx->connected)
+    {
+        fprintf(stderr, "Socket disconnect!\n");
+        return kFailure;
+    }
+
     sock = p_ctx->server_fd;
     memset(send_buf, 0, kMaxReadLineLen);
 
@@ -1666,7 +1671,7 @@ size_t sock_read(int sock, char* buffer, size_t buf_len)
 
 int idle_state(EDC_CTX *p_ctx)
 {
-    int bl_usec;
+    int bl_usec = 0;
     //int remain_sec;
     char *in_pos = p_ctx->project_code;
     unsigned char in_key;
@@ -1697,7 +1702,7 @@ int idle_state(EDC_CTX *p_ctx)
 
     if (lkp_set_backlight(p_ctx->lkp_ctx, 0x00))
     {
-        fprintf(stderr, "1Can not set backlight.\n");
+        fprintf(stderr, "Can not close backlight in idle.\n");
         return kFailure;
     }
 
@@ -1707,7 +1712,7 @@ int idle_state(EDC_CTX *p_ctx)
     // Initial user data
     memset(&p_ctx->curr_card_sn, 0, kMaxCardSNLen);
     memset(&p_ctx->project_code, 0, kMaxProjectCodeLen);
-    p_ctx->curr_emp = 0;
+    p_ctx->curr_emp_idx = 0;
     while (kTrue)
     {   
         //catch input and update screen
@@ -1751,7 +1756,7 @@ int idle_state(EDC_CTX *p_ctx)
                 // Enable all backlight
                 if (lkp_set_backlight(p_ctx->lkp_ctx, 0xff))
                 {
-                    fprintf(stderr, "Can not set backlight.\n");
+                    fprintf(stderr, "Can not open backlight in idle.\n");
                     return kFailure;
                 }
                 bl_usec = 0;
@@ -1767,7 +1772,7 @@ int idle_state(EDC_CTX *p_ctx)
         {
             if (lkp_set_backlight(p_ctx->lkp_ctx, 0x00))
             {
-                fprintf(stderr, "Can not set backlight.\n");
+                fprintf(stderr, "Can not close backlight in idle when timeout.\n");
                 return kFailure;
             }
             bl_usec = 0;
@@ -1900,27 +1905,23 @@ int quota_state(EDC_CTX* p_ctx)
         return kFailure;
     }
 
-    /*
     if (p_ctx->prt_con_type != 0)
     {
         if (ptr_select(p_ctx->prt_con_type) != kSuccess)
         {
-            fprintf(stderr, "Set COM port printer failure: %d\n", r);
-            //ptr_select(0);
+            fprintf(stderr, "Set COM port printer failure.\n");
         }
     }
-    */
 
-
-    // Ref is_valid_card()
-    curr_emp = &(p_ctx->emp_list[p_ctx->curr_emp - 1]);
+    // is_valid_card() will prepare curr_emp_idx
+    curr_emp = &(p_ctx->emp_list[p_ctx->curr_emp_idx]);
     curr_edc = &(p_ctx->edc_list[0]);
     utime_remain = curr_edc->limit_time * kMicroPerSecond;
 
     // Enable all backlight
     if (lkp_set_backlight(p_ctx->lkp_ctx, 0xff))
     {
-        fprintf(stderr, "Can not set backlight.\n");
+        fprintf(stderr, "Can not open backlight when touch card.\n");
         return kFailure;
     }
     bl_usec = utime_remain;
@@ -1954,6 +1955,9 @@ int quota_state(EDC_CTX* p_ctx)
     }
 
     init_printertype(&(ptr_counter.photocopy));
+    init_printertype(&(ptr_counter.print));
+    init_printertype(&(ptr_counter.fax));
+    init_printertype(&(ptr_counter.scan));
     while (kTrue)
     {
         //catch input and update screen
@@ -2001,7 +2005,7 @@ int quota_state(EDC_CTX* p_ctx)
         {
             if (lkp_set_backlight(p_ctx->lkp_ctx, 0x00))
             {
-                fprintf(stderr, "Can not set backlight.\n");
+                fprintf(stderr, "Can not close backlight in quota when timeout.\n");
                 return kFailure;
             }
         }
@@ -2012,9 +2016,8 @@ int quota_state(EDC_CTX* p_ctx)
     // Get paper-track status
     //if ( (ptr_counter.u8_work_status & 0x02) == 1) {}
 
-    print_printertype(&(ptr_counter.photocopy));
+    //print_printertype(&(ptr_counter.photocopy));
     
-    /*
     if (gen_cost_log(p_ctx, COPY, &ptr_counter.photocopy) != kSuccess)
     {
         fprintf(stderr, "Generate EDC log of copy failure\n");
@@ -2026,14 +2029,15 @@ int quota_state(EDC_CTX* p_ctx)
         fprintf(stderr, "Generate EDC log of copy failure\n");
         return kFailure;
     }
-    */
 
+    fprintf(stderr, "aa\n");
     //release print
     if (ptr_count_stop(p_ctx->lkp_ctx) != kSuccess)
     {
         fprintf(stderr, "Stop print counter failure\n");
         return kFailure;
     }
+    fprintf(stderr, "bb\n");
 
     p_ctx->state = IDLE;
     return kSuccess;
@@ -2117,6 +2121,7 @@ int usage_dup_check(PRINTERTYPE *p_src, PRINTERTYPE *p_dest)
 
 int gen_cost_log(EDC_CTX* p_ctx, const EDC_LOG_TYPE log_type, PRINTERTYPE *usage)
 {
+    //NOTE! kMaxEDCLogLen maybe not long enough when many pages is not 0
     char edc_log_content[kMaxEDCLogLen];
     char temp_str[kMaxEDCLogLen];
     int gray_a_sum = 0;
@@ -2900,7 +2905,7 @@ int is_valid_card(EDC_CTX *p_ctx)
 {
     int i;
     int result = kFalse;
-    EMPLOYEE_DATA* emp_list;
+    EMPLOYEE_DATA* emp_ptr;
 
     if (!p_ctx)
     {
@@ -2908,7 +2913,7 @@ int is_valid_card(EDC_CTX *p_ctx)
         return kFailure;
     }
 
-    emp_list = p_ctx->emp_list;
+    emp_ptr = p_ctx->emp_list;
 
     if (pthread_mutex_lock(&p_ctx->emp_mutex))
     {
@@ -2918,14 +2923,13 @@ int is_valid_card(EDC_CTX *p_ctx)
 
     for (i = 0; i < p_ctx->emp_num; i++)
     {
-        if (strncmp(emp_list->card_sn, p_ctx->curr_card_sn, kMaxCardSNLen) == 0)
+        if (strncmp(emp_ptr->card_sn, p_ctx->curr_card_sn, kMaxCardSNLen) == 0)
         {
-            // i.e. index 0 is first employee
-            p_ctx->curr_emp = i + 1;
+            p_ctx->curr_emp_idx = i;
             result = kTrue;
             break;
         }
-        emp_list++;
+        emp_ptr++;
     }
 
     if (pthread_mutex_unlock(&p_ctx->emp_mutex))
