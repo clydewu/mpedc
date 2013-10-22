@@ -1376,9 +1376,10 @@ int load_server_set(EDC_CTX *p_ctx, const char *ini_file)
     char line[kMaxReadLineLen];
     int len;
     //char ipv4[kMaxIPLen + 1];
-    char port_tmp[kMaxPortLen + 1];
+    char num_tmp[kMaxPortLen + 1];
     //char edc_id[kMaxEDCIDLen + 1];
     int port;
+    int com;
     char *end_ptr;
 
     if (!ini_file)
@@ -1396,11 +1397,21 @@ int load_server_set(EDC_CTX *p_ctx, const char *ini_file)
     if (!feof(fpSetting))
     {
         fgets(line, kMaxReadLineLen, fpSetting);
+        FileGetValue(line, num_tmp, &len);
+        com = strtol(num_tmp, &end_ptr, 10);
+        if (*end_ptr != '\0')
+        {
+            fprintf(stderr, "COM setup in INI file error!\n");
+            return kFailure;
+        }
+        p_ctx->prt_con_type = com;
+
+        fgets(line, kMaxReadLineLen, fpSetting);
         FileGetValue(line, p_ctx->server_ip, &len);
 
         fgets(line, kMaxReadLineLen, fpSetting);
-        FileGetValue(line, port_tmp, &len);
-        port = strtol(port_tmp, &end_ptr, 10);
+        FileGetValue(line, num_tmp, &len);
+        port = strtol(num_tmp, &end_ptr, 10);
         if (*end_ptr != '\0')
         {
             fprintf(stderr, "Port setup in INI file error!\n");
