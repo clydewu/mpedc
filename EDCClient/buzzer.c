@@ -2186,7 +2186,6 @@ int setup_state(EDC_CTX* p_ctx)
     char new_server_ip[kMaxIPLen + 1];
     char new_server_port_str[kMaxPortLen + 1];
     int new_server_port;
-    char confirm_str[1];
     char *end_ptr;
 
     FILE *fp_setup;
@@ -2195,6 +2194,7 @@ int setup_state(EDC_CTX* p_ctx)
 
     FN_STATE state = SET_PRT_TYPE;
     int state_ret;
+    unsigned char in_key;
 
     if (!p_ctx)
     {
@@ -2238,9 +2238,10 @@ int setup_state(EDC_CTX* p_ctx)
     new_server_port = p_ctx->server_port;
 
     state = SET_PRT_TYPE;
+    //TODO so dirty here...
     while (kTrue)
     {
-        //TODO so dirty here...
+        fprintf(stderr, "state: %d\n", state);
         switch (state)
         {
             case SET_PRT_TYPE:
@@ -2250,7 +2251,7 @@ int setup_state(EDC_CTX* p_ctx)
                     show_line(p_ctx, 3, STR_EMPTY);
                     state_ret = get_str_from_keypad(p_ctx, STR_EMPTY,
                             new_prt_con_type_str, kMaxConnectTypeLen + 1, 1);
-                    fprintf(stderr, "ret: %d, value: %s\n", state_ret, new_prt_con_type_str);
+                    //fprintf(stderr, "ret: %d, value: %s\n", state_ret, new_prt_con_type_str);
                     if (state_ret != kFailure)
                     {
                         new_prt_con_type = (int)strtol(new_prt_con_type_str, &end_ptr, 10);
@@ -2266,10 +2267,12 @@ int setup_state(EDC_CTX* p_ctx)
                         break;
                     }
                 }
+                break;
             case SET_EDC_ID:
                 show_line(p_ctx, 0, STR_SETUP_EDC_ID);
                 state_ret = get_str_from_keypad(p_ctx, STR_EMPTY,
                         new_edc_id, kMaxEDCIDLen + 1, 1);
+                //fprintf(stderr, "ret: %d, value: %s\n", state_ret, new_edc_id);
                 break;
             case SET_EDC_IP:
                 while (kTrue)
@@ -2278,7 +2281,7 @@ int setup_state(EDC_CTX* p_ctx)
                     show_line(p_ctx, 3, STR_EMPTY);
                     state_ret = get_ipv4_from_keypad(p_ctx, STR_EMPTY,
                             new_edc_ip, kMaxIPLen + 1, 1);
-
+                    //fprintf(stderr, "ret: %d, value: %s\n", state_ret, new_edc_ip);
                     if (state_ret != kFailure)
                     {
                         if (inet_addr(new_edc_ip) == kFailure)
@@ -2291,6 +2294,7 @@ int setup_state(EDC_CTX* p_ctx)
                         break;
                     }
                 }
+                break;
             case SET_SUBMASK:
                 while (kTrue)
                 {
@@ -2298,6 +2302,7 @@ int setup_state(EDC_CTX* p_ctx)
                     show_line(p_ctx, 3, STR_EMPTY);
                     state_ret = get_ipv4_from_keypad(p_ctx, STR_EMPTY,
                                 new_submask, kMaxIPLen + 1, 1);
+                    //fprintf(stderr, "ret: %d, value: %s\n", state_ret, new_submask);
                     if (state_ret != kFailure)
                     {
                         if (inet_addr(new_submask) == kFailure)
@@ -2310,6 +2315,7 @@ int setup_state(EDC_CTX* p_ctx)
                         break;
                     }
                 }
+                break;
             case SET_GATEWAY:
                 while (kTrue)
                 {
@@ -2317,6 +2323,7 @@ int setup_state(EDC_CTX* p_ctx)
                     show_line(p_ctx, 3, STR_EMPTY);
                     state_ret = get_ipv4_from_keypad(p_ctx, STR_EMPTY,
                                 new_gateway, kMaxIPLen + 1, 1);
+                    //fprintf(stderr, "ret: %d, value: %s\n", state_ret, new_gateway);
                     if (state_ret != kFailure)
                     {
                         if (inet_addr(new_gateway) == kFailure)
@@ -2329,6 +2336,7 @@ int setup_state(EDC_CTX* p_ctx)
                         break;
                     }
                 }
+                break;
             case SET_SRV_IP:
                 while (kTrue)
                 {
@@ -2336,6 +2344,7 @@ int setup_state(EDC_CTX* p_ctx)
                     show_line(p_ctx, 3, STR_EMPTY);
                     state_ret = get_ipv4_from_keypad(p_ctx, STR_EMPTY,
                                 new_server_ip, kMaxIPLen + 1, 1);
+                    //fprintf(stderr, "ret: %d, value: %s\n", state_ret, new_server_ip);
                     if (state_ret != kFailure)
                     {
                         if (inet_addr(new_server_ip) == -1)
@@ -2348,6 +2357,7 @@ int setup_state(EDC_CTX* p_ctx)
                         break;
                     }
                 }
+                break;
             case SET_SRV_PORT:
                 while (kTrue)
                 {
@@ -2355,6 +2365,7 @@ int setup_state(EDC_CTX* p_ctx)
                     show_line(p_ctx, 3, STR_EMPTY);
                     state_ret = get_str_from_keypad(p_ctx, STR_EMPTY,
                                 new_server_port_str, kMaxPortLen + 1, 1);
+                    //fprintf(stderr, "ret: %d, value: %s\n", state_ret, new_server_port_str);
                     if (state_ret != kFailure)
                     {
                         new_server_port = (int)strtol(new_server_port_str, &end_ptr, 10);
@@ -2370,10 +2381,35 @@ int setup_state(EDC_CTX* p_ctx)
                         break;
                     }
                 }
+                break;
             case SET_CONFIRM:
                 show_line(p_ctx, 0, STR_SETUP_CONFIRM);
-                state_ret = get_str_from_keypad(p_ctx, STR_EMPTY,
-                            confirm_str, 1, 1);
+                show_line(p_ctx, 1, STR_EMPTY);
+                while (kTrue)
+                {   
+                    if (get_press_key(p_ctx, &in_key) < 0)
+                    {
+                        return kFailure;
+                    }
+                    else if (in_key == kASCIIEnter ||
+                            in_key == kASCIIDown)
+                    {
+                        state_ret = kASCIIDown;
+                        break;
+                    }
+                    else if (in_key == kASCIICancel)
+                    {
+                        state_ret = kASCIICancel;
+                        break;
+                    }
+                    else if (in_key == kASCIIUp)
+                    {
+                        state_ret = kASCIIUp;
+                        break;
+                    }
+                    usleep(kMicroPerSecond / 10);
+                }
+                fprintf(stderr, "ret: %d\n", state_ret);
                 break;
         }
 
@@ -2403,6 +2439,7 @@ int setup_state(EDC_CTX* p_ctx)
             }
             else if (state_ret == kASCIIDown)
             {
+                fprintf(stderr, "Write to ini: %s\n", kServerIni);
                 strncpy(p_ctx->edc_id, new_edc_id, kMaxEDCIDLen+1);
                 strncpy(p_ctx->edc_ip, new_edc_ip, kMaxIPLen+1);
                 strncpy(p_ctx->submask, new_submask, kMaxIPLen+1);
@@ -2516,7 +2553,7 @@ int get_str_from_keypad(EDC_CTX *p_ctx, const char* prompt,
         return kFailure;
     }
 
-    ptr_buf = buf;
+    ptr_buf = buf + strlen(buf);
     while (kTrue)
     {   
         //catch input and update screen
@@ -2541,7 +2578,10 @@ int get_str_from_keypad(EDC_CTX *p_ctx, const char* prompt,
             }
             else if (in_key == kASCIIClear)
             {
-                *--ptr_buf = '\0';
+                if (ptr_buf > buf)
+                {
+                    *--ptr_buf = '\0';
+                }
             }
             else if (in_key == kASCIICancel)
             {
@@ -2549,9 +2589,10 @@ int get_str_from_keypad(EDC_CTX *p_ctx, const char* prompt,
                 ptr_buf = buf;
                 //return kASCIICancel;
             }
-            else if (in_key == kASCIIEnter || in_key == kASCIIDown)
+            else if (in_key == kASCIIEnter ||
+                     in_key == kASCIIDown)
             {
-                *ptr_buf = '\0';
+                //*ptr_buf = '\0';
                 break;
             }
             else if (in_key == kASCIIUp)
@@ -2587,7 +2628,7 @@ int get_ipv4_from_keypad(EDC_CTX *p_ctx, const char* prompt,
         return kFailure;
     }
 
-    ptr_buf = buf;
+    ptr_buf = buf + strlen(buf);
     while (kTrue)
     {   
         //catch input and update screen
@@ -2614,15 +2655,17 @@ int get_ipv4_from_keypad(EDC_CTX *p_ctx, const char* prompt,
                     *ptr_buf++ = '.';
                     *ptr_buf = '\0';
                 }
-
             }
             else if (in_key == kASCIIClear)
             {
-                if (*--ptr_buf == '.')
+                if (ptr_buf > buf)
                 {
-                    --ptr_buf;
+                    if (*--ptr_buf == '.')
+                    {
+                        --ptr_buf;
+                    }
+                    *ptr_buf = '\0';
                 }
-                *ptr_buf = '\0';
             }
             else if (in_key == kASCIICancel)
             {
@@ -2633,7 +2676,7 @@ int get_ipv4_from_keypad(EDC_CTX *p_ctx, const char* prompt,
             else if (in_key == kASCIIEnter
                     || in_key == kASCIIDown)
             {
-                *ptr_buf = '\0';
+                //*ptr_buf = '\0';
                 break;
             }
             else if (in_key == kASCIIUp)
