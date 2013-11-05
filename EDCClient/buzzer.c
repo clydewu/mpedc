@@ -1749,7 +1749,7 @@ int idle_state(EDC_CTX *p_ctx)
                     *in_pos = '\0';
                 }
 
-                fprintf(stderr, "project code: %s\n", p_ctx->project_code);
+                //fprintf(stderr, "project code: %s\n", p_ctx->project_code);
 
                 show_line(p_ctx, 2, p_ctx->project_code);
 
@@ -1983,7 +1983,7 @@ int quota_state(EDC_CTX* p_ctx)
         }
 
         // duplicate and check modification
-        if (usage_dup_check(&(ptr_counter.photocopy), &photocopy_usage) ||
+        if (usage_dup_check(&(ptr_counter.photocopy), &photocopy_usage) &&
             usage_dup_check(&(ptr_counter.print), &print_usage)  == kFalse)
         {
             // If counter didn't be modified, continue countdown
@@ -1993,6 +1993,10 @@ int quota_state(EDC_CTX* p_ctx)
                 p_ctx->state = IDLE;
                 break;
             }
+        }
+        else
+        {
+            utime_remain = curr_edc->limit_time * kMicroPerSecond;
         }
         
         usleep(kMicroPerSecond / 10);
@@ -2016,7 +2020,7 @@ int quota_state(EDC_CTX* p_ctx)
     // Get paper-track status
     //if ( (ptr_counter.u8_work_status & 0x02) == 1) {}
 
-    //print_printertype(&(ptr_counter.photocopy));
+    print_printertype(&(ptr_counter.photocopy));
     
     if (gen_cost_log(p_ctx, COPY, &ptr_counter.photocopy) != kSuccess)
     {
@@ -2030,14 +2034,12 @@ int quota_state(EDC_CTX* p_ctx)
         return kFailure;
     }
 
-    fprintf(stderr, "aa\n");
     //release print
     if (ptr_count_stop(p_ctx->lkp_ctx) != kSuccess)
     {
         fprintf(stderr, "Stop print counter failure\n");
         return kFailure;
     }
-    fprintf(stderr, "bb\n");
 
     p_ctx->state = IDLE;
     return kSuccess;
