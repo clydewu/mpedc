@@ -268,27 +268,57 @@ namespace EDCServer
 
         private void sync_edc_log(string recv)
         {
-            SqlCommand sql_cmd;
+
             string[] recv_list;
 
             recv_list = recv.Split('\n');
 
+            //Start from 2nd line
             for (int i = 1; i < recv_list.Length; i++)
             {
                 if (recv_list[i].Trim().Length != 0)
                 {
-                    sql_cmd = new SqlCommand("AppendEDCTempLog", sqlConn);
-                    sql_cmd.Parameters.Add(C.kFieldEDCLog, SqlDbType.NVarChar);
-                    sql_cmd.Parameters[C.kFieldEDCLog].Value = recv_list[i].Trim();
-                    sql_cmd.CommandType = System.Data.CommandType.StoredProcedure;
-                    if (sql_cmd.ExecuteNonQuery() != 1)
+                    EDCLOG edc_log = parse_log(recv_list[i].Trim());
+                    SqlCommand sql_insert_log = new SqlCommand("INSERT INTO [dbo].[EDCLogTmp] (EDCLog) VALUES (@edc_log)", sqlConn);
+                    sql_insert_log.Parameters.Add(C.kFieldEDCLog, SqlDbType.NVarChar);
+                    sql_insert_log.Parameters[C.kFieldEDCLog].Value = recv_list[i].Trim();
+                    sql_insert_log.CommandType = System.Data.CommandType.Text;
+                    if (sql_insert_log.ExecuteNonQuery() != 1)
                     {
                         System.Diagnostics.Debug.WriteLine("Write log to DB error");
+                    }
+
+                    if (edc_log.type == "CARD")
+                    {
+                        string[] content_token = edc_log.content.Split(' ');
+                        if (content_token[0] == "VALID")
+                        {
+                            SqlCommand sql_edc_data = new SqlCommand("INSERT INTO [dbo].[PQCardInfo] (EDCNO, CardNumber, UserAccount, ProjectNO, MachineNO, MachineIP, CardDT)" +
+                            "VALUES (SELECT T1.EDCNO, T2.Card  FROM [dbo].[DataEDC]", sqlConn);
+                            sql_edc_data.Parameters.Add(C.kFieldEDCLog, SqlDbType.NVarChar);
+                            sql_edc_data.Parameters[C.kFieldEDCLog].Value = recv_list[i].Trim();
+                            sql_edc_data.CommandType = System.Data.CommandType.Text;
+                            if (sql_cmd.ExecuteNonQuery() != 1)
+                        }
                     }
                 }
             }
 
             //return true;
+        }
+
+        private EDCLOG parse_log(string log)
+        {
+            EDCLOG edc_log = new EDCLOG();
+            string[] token = log.Split('\t');
+
+            edc_log.type = token[0];
+            edc_log.edc_no = token[1];
+            edc_log.project_no = token[2];
+            edc_log.emp_no = token[3];
+            edc_log.log_time = token[4];
+            edc_log.content = token[5];
+            return edc_log;
         }
 
     }

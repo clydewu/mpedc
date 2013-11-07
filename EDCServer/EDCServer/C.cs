@@ -10,7 +10,9 @@ namespace EDCServer
         public const string kSyncEDCCmd = "SYNC_EDC";
         public const string kSyncProjCmd = "SYNC_PROJ";
         public const string kSyncLogCmd = "SYNC_LOG";
-        public const string kSyncHeartBeat = "HEARTBEAT";
+        public const string kSyncEmpOkCmd = "SYNC_EMP_OK";
+        public const string kSyncEDCOkCmd = "SYNC_EDC_OK";
+        public const string kSyncProjOkCmd = "SYNC_PROJ_OK";
 
         public const string kFieldEDCID = "@edc_id";
         public const string kFieldEDCLog = "@edc_log";
@@ -30,5 +32,15 @@ namespace EDCServer
         public const int kSize = 256;
 
         public const int kDefPort = 3000;
+    }
+
+    struct EDCLOG
+    {
+        public string type;
+        public string edc_no;
+        public string project_no;
+        public string emp_no;
+        public string log_time;
+        public string content;
     }
 }

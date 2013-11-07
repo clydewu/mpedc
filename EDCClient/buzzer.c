@@ -164,6 +164,7 @@ const char STR_SETUP_CURRENT[] = "目前:";
 const char STR_SETUP_NEWSET[] = "設定:";
 const char STR_SETUP_ERROR[] = "格式錯誤";
 const char STR_SETUP_PASSWD_ERROR[] = "密碼錯誤";
+const char STR_SETUP_INPUT_PASSWD[] = "輸入密碼";
 
 enum RET{
         RET_SUCCESS = 0,           // 成功。
@@ -456,7 +457,7 @@ int main(void)
             ret = setup_state(&ctx);
             break;
         case PASSWD:
-            ret = setup_state(&ctx);
+            ret = passwd_state(&ctx);
             break;
         default:
             fprintf(stderr, "Never ever be here\n");
@@ -584,6 +585,10 @@ void keypad_thr_func(void *ctx)
                 //fprintf(stderr, "input key: %d.\n", in_key);
                 p_key_ctx->cur_key = in_key;
             }
+        }
+        else
+        {
+            //fprintf(stderr, "Get keypad failure.\n");
         }
         usleep(kMicroPerSecond / kKeyScanPerSec);
     }
@@ -1733,6 +1738,11 @@ int idle_state(EDC_CTX *p_ctx)
     p_ctx->curr_emp_idx = 0;
     while (kTrue)
     {   
+        if (show_datetime(p_ctx) != kSuccess)
+        {
+            return kFailure;
+        }
+
         //catch input and update screen
         if (get_press_key(p_ctx, &in_key) != kSuccess)
         {
@@ -1748,13 +1758,10 @@ int idle_state(EDC_CTX *p_ctx)
                     p_ctx->state = PASSWD;
                     break;
                 }
-                else if (in_key == kASCIIClear)
+                else if (in_key == kASCIIClear 
+                    && in_pos > p_ctx->project_code)
                 {
-                    // Has user already input some thing?
-                    if (in_pos > p_ctx->project_code)
-                    {
-                        *--in_pos = '\0';
-                    }
+                    *--in_pos = '\0';
                 }
                 else if (in_key == kASCIICancel)
                 {
@@ -1782,22 +1789,6 @@ int idle_state(EDC_CTX *p_ctx)
             }
         }
 
-        if (show_datetime(p_ctx) != kSuccess)
-        {
-            return kFailure;
-        }
-
-        if (bl_usec > kMicroPerSecond * kLCDBackLightTimeout)
-        {
-            if (set_backlight(p_ctx, 0x00))
-            {
-                fprintf(stderr, "Can not close backlight in idle when timeout.\n");
-                return kFailure;
-            }
-            bl_usec = 0;
-        }
-        bl_usec += kMicroPerSecond / 5;
-
         //catch carding
         serWriteCOM(&p_ctx->com_ctx, kSendComSignal, sizeof(kSendComSignal));
         usleep(kMicroPerSecond / 10);
@@ -1816,6 +1807,17 @@ int idle_state(EDC_CTX *p_ctx)
             break;
         }
         usleep(kMicroPerSecond / 10);
+
+        if (bl_usec > kMicroPerSecond * kLCDBackLightTimeout)
+        {
+            if (set_backlight(p_ctx, 0x00))
+            {
+                fprintf(stderr, "Can not close backlight in idle when timeout.\n");
+                return kFailure;
+            }
+            bl_usec = 0;
+        }
+        bl_usec += kMicroPerSecond / 5;
     }
     return kSuccess;
 }
@@ -2050,7 +2052,7 @@ int quota_state(EDC_CTX* p_ctx)
     print_printertype(&(ptr_counter.photocopy));
     
     init_printertype(&empty_usage);
-    if (!usage_dup_modify(&ptr_counter.photocopy, &empty_usage) 
+    if (usage_dup_modify(&ptr_counter.photocopy, &empty_usage) 
             && gen_cost_log(p_ctx, COPY, &ptr_counter.photocopy) != kSuccess)
     {
         fprintf(stderr, "Generate EDC log of copy failure\n");
@@ -2058,7 +2060,7 @@ int quota_state(EDC_CTX* p_ctx)
     }
 
     init_printertype(&empty_usage);
-    if (!usage_dup_modify(&ptr_counter.print, &empty_usage) 
+    if (usage_dup_modify(&ptr_counter.print, &empty_usage) 
             && gen_cost_log(p_ctx, PRINT, &ptr_counter.print) != kSuccess)
     {
         fprintf(stderr, "Generate EDC log of copy failure\n");
@@ -2357,10 +2359,9 @@ int scanning_state(EDC_CTX* p_ctx)
 
 int passwd_state(EDC_CTX* p_ctx)
 {
-    char in_key;
+    unsigned char in_key;
     char in_passwd[kMaxPasswdLen + 1];
-    char *ptr_buf = p_ctx->fn_passwd;
-    char *buf = p_ctx->fn_passwd;
+    char *ptr = in_passwd;
 
     int bl_usec = 0;
 
@@ -2369,6 +2370,22 @@ int passwd_state(EDC_CTX* p_ctx)
         fprintf(stderr, "Parameter Fail!\n");
         return kFailure;
     }
+
+    if (lcd_clean_scr(p_ctx->lkp_ctx) != kSuccess)
+    {
+        fprintf(stderr, "Can not clean screen.\n");
+        return kFailure;
+    }
+
+    if (lcd_clean(p_ctx->lkp_ctx) != kSuccess)
+    {
+        fprintf(stderr, "Can not clean screen buffer.\n");
+        return kFailure;
+    }
+
+    memset(in_passwd, 0, kMaxPasswdLen + 1);
+
+    show_line(p_ctx, 0, STR_SETUP_INPUT_PASSWD);
 
     while (kTrue)
     {
@@ -2382,14 +2399,14 @@ int passwd_state(EDC_CTX* p_ctx)
             if (in_key != 0)
             {
                 if (in_key >= kASCIIFirstVisiable && in_key <= kASCIILastVisiable
-                        && ptr_buf - buf < kMaxPasswdLen)
+                        && ptr - in_passwd < kMaxPasswdLen)
                 {
-                    *ptr_buf++ = in_key;
-                    *ptr_buf = '\0';
+                    *ptr++ = in_key;
+                    *ptr = '\0';
                 }
-                else if (in_key == kASCIIClear && ptr_buf > buf)
+                else if (in_key == kASCIIClear && ptr > in_passwd)
                 {
-                    *--ptr_buf = '\0';
+                    *--ptr = '\0';
                 }
                 else if (in_key == kASCIICancel)
                 {
@@ -2421,7 +2438,7 @@ int passwd_state(EDC_CTX* p_ctx)
             }
             bl_usec = 0;
         }
-        bl_usec += kMicroPerSecond / 5;
+        bl_usec += kMicroPerSecond / 10;
 
         usleep(kMicroPerSecond / 10);
     }
@@ -3041,7 +3058,7 @@ int set_led(unsigned int conf)
             {
                 return kFailure;
             }
-            usleep(kMicroPerSecond / 20);
+            usleep(kMicroPerSecond / 10);
         }
     }
 
@@ -3064,7 +3081,7 @@ int set_backlight(EDC_CTX* p_ctx, unsigned char u8_type)
         {
             return kFailure;
         }
-        usleep(kMicroPerSecond / 20);
+        usleep(kMicroPerSecond / 10);
     }
 
     return kSuccess;
@@ -3154,7 +3171,6 @@ int show_line(EDC_CTX *p_ctx, int line, const char *string)
         {
             return kFailure;
         }
-        usleep(kMicroPerSecond / 20);
     }
 
     return kSuccess;
