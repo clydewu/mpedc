@@ -20,7 +20,7 @@
 
 #define MAX_COM_PORT_LEN    (64)
 #define MAX_COM_CMD_BUFFER  (9)
-#define MAX_PROJECT_LEN     (16)
+#define MAX_PROJECT_LEN     (4)
 #define MAX_CARD_SN_LEN     (16)
 #define MAX_DEP_NAME_LEN    (64)
 #define MAX_DEP_NO_LEN      (16)
@@ -163,6 +163,7 @@ const char STR_SETUP_CONFIRM[] = "確定/取消";
 const char STR_SETUP_CURRENT[] = "目前:";
 const char STR_SETUP_NEWSET[] = "設定:";
 const char STR_SETUP_ERROR[] = "格式錯誤";
+const char STR_SETUP_PASSWD_ERROR[] = "密碼錯誤";
 
 enum RET{
         RET_SUCCESS = 0,           // 成功。
@@ -184,7 +185,8 @@ typedef enum _op_state
     INVALID_CARD,
     QUOTA,
     SCANNING,
-    SETUP
+    SETUP,
+    PASSWD
 } OP_STATE;
 
 typedef enum _fn_state
@@ -346,6 +348,7 @@ int invalid_card_state(EDC_CTX*);
 int quota_state(EDC_CTX*);
 int scanning_state(EDC_CTX*);
 int setup_state(EDC_CTX*);
+int passwd_state(EDC_CTX*);
 
 // EDC Utilities
 int init(EDC_CTX*, const char*);
@@ -442,7 +445,7 @@ int main(void)
             break;
         case INVALID_CARD:
             ret = invalid_card_state(&ctx);
-            break;
+           break;
         case QUOTA:
             ret = quota_state(&ctx);
             break;
@@ -450,6 +453,9 @@ int main(void)
             ret = scanning_state(&ctx);
             break;
         case SETUP:
+            ret = setup_state(&ctx);
+            break;
+        case PASSWD:
             ret = setup_state(&ctx);
             break;
         default:
@@ -958,7 +964,7 @@ int init(EDC_CTX *p_ctx, const char* com_ini_file)
 
     p_ctx->state = IDLE;
     p_ctx->connected = kFalse;
-    memset(p_ctx->project_code, 0, kMaxProjectCodeLen);
+    memset(p_ctx->project_code, 0, kMaxProjectCodeLen + 1);
 
     if (pthread_mutex_init(&(p_ctx->emp_mutex), NULL) != kSuccess)
     {
@@ -1694,13 +1700,13 @@ int idle_state(EDC_CTX *p_ctx)
         return kFailure;
     }
 
-    if(lcd_clean_scr(p_ctx->lkp_ctx) != kSuccess)
+    if (lcd_clean_scr(p_ctx->lkp_ctx) != kSuccess)
     {
         fprintf(stderr, "Can not clean screen.\n");
         return kFailure;
     }
 
-    if(lcd_clean(p_ctx->lkp_ctx) != kSuccess)
+    if (lcd_clean(p_ctx->lkp_ctx) != kSuccess)
     {
         fprintf(stderr, "Can not clean screen buffer.\n");
         return kFailure;
@@ -1723,7 +1729,7 @@ int idle_state(EDC_CTX *p_ctx)
 
     // Initial user data
     memset(&p_ctx->curr_card_sn, 0, kMaxCardSNLen);
-    memset(&p_ctx->project_code, 0, kMaxProjectCodeLen);
+    memset(&p_ctx->project_code, 0, kMaxProjectCodeLen + 1);
     p_ctx->curr_emp_idx = 0;
     while (kTrue)
     {   
@@ -1739,7 +1745,7 @@ int idle_state(EDC_CTX *p_ctx)
             {
                 if (in_key == kASCIIFn)
                 {
-                    p_ctx->state = SETUP;
+                    p_ctx->state = PASSWD;
                     break;
                 }
                 else if (in_key == kASCIIClear)
@@ -1755,7 +1761,8 @@ int idle_state(EDC_CTX *p_ctx)
                     in_pos = p_ctx->project_code;
                     *in_pos = '\0';
                 }
-                else if (in_key >= kASCII_zero && in_key <= kASCII_nine)
+                else if (in_key >= kASCII_zero && in_key <= kASCII_nine
+                        && in_pos - p_ctx->project_code < kMaxProjectCodeLen)
                 {
                     *in_pos++ = in_key;
                     *in_pos = '\0';
@@ -1883,6 +1890,7 @@ int quota_state(EDC_CTX* p_ctx)
     PRINTERCOUNT_V2 ptr_counter;
     PRINTERTYPE print_usage;
     PRINTERTYPE photocopy_usage;
+    PRINTERTYPE empty_usage;
     int bl_usec;
     int cur_quota;
     int enject_or_timeout = 0;
@@ -2041,13 +2049,17 @@ int quota_state(EDC_CTX* p_ctx)
 
     print_printertype(&(ptr_counter.photocopy));
     
-    if (gen_cost_log(p_ctx, COPY, &ptr_counter.photocopy) != kSuccess)
+    init_printertype(&empty_usage);
+    if (!usage_dup_modify(&ptr_counter.photocopy, &empty_usage) 
+            && gen_cost_log(p_ctx, COPY, &ptr_counter.photocopy) != kSuccess)
     {
         fprintf(stderr, "Generate EDC log of copy failure\n");
         return kFailure;
     }
 
-    if (gen_cost_log(p_ctx, PRINT, &ptr_counter.print) != kSuccess)
+    init_printertype(&empty_usage);
+    if (!usage_dup_modify(&ptr_counter.print, &empty_usage) 
+            && gen_cost_log(p_ctx, PRINT, &ptr_counter.print) != kSuccess)
     {
         fprintf(stderr, "Generate EDC log of copy failure\n");
         return kFailure;
@@ -2254,8 +2266,6 @@ int usage_dup_modify(PRINTERTYPE *p_src, PRINTERTYPE *p_dest)
             p_dest->u16_double_color_a[i] != p_src->u16_double_color_a[i] ||
             p_dest->u16_double_color_b[i] != p_src->u16_double_gray_scale_b[i] )
         {
-
-            fprintf(stderr, "Index %d change!\n", i);
             modify = kTrue;
         }
 
@@ -2339,6 +2349,93 @@ int scanning_state(EDC_CTX* p_ctx)
     {
         fprintf(stderr, "Parameter Fail!\n");
         return kFailure;
+    }
+
+    return kSuccess;
+}
+
+
+int passwd_state(EDC_CTX* p_ctx)
+{
+    char in_key;
+    char in_passwd[kMaxPasswdLen + 1];
+    char *ptr_buf = p_ctx->fn_passwd;
+    char *buf = p_ctx->fn_passwd;
+
+    int bl_usec = 0;
+
+    if (!p_ctx)
+    {
+        fprintf(stderr, "Parameter Fail!\n");
+        return kFailure;
+    }
+
+    while (kTrue)
+    {
+        //catch input and update screen
+        if (get_press_key(p_ctx, &in_key) < 0)
+        {
+            return kFailure;
+        }
+        else
+        {
+            if (in_key != 0)
+            {
+                if (in_key >= kASCIIFirstVisiable && in_key <= kASCIILastVisiable
+                        && ptr_buf - buf < kMaxPasswdLen)
+                {
+                    *ptr_buf++ = in_key;
+                    *ptr_buf = '\0';
+                }
+                else if (in_key == kASCIIClear && ptr_buf > buf)
+                {
+                    *--ptr_buf = '\0';
+                }
+                else if (in_key == kASCIICancel)
+                {
+                    p_ctx->state = IDLE;
+                    return kSuccess;
+                }
+                else if (in_key == kASCIIEnter)
+                {
+                    break;
+                }
+                show_line(p_ctx, 2, in_passwd);
+
+                // Enable all backlight
+                if (set_backlight(p_ctx, 0xff))
+                {
+                    fprintf(stderr, "Can not open backlight in idle.\n");
+                    return kFailure;
+                }
+                bl_usec = 0;
+            }
+        }
+
+        if (bl_usec > kMicroPerSecond * kLCDBackLightTimeout)
+        {
+            if (set_backlight(p_ctx, 0x00))
+            {
+                fprintf(stderr, "Can not close backlight in idle when timeout.\n");
+                return kFailure;
+            }
+            bl_usec = 0;
+        }
+        bl_usec += kMicroPerSecond / 5;
+
+        usleep(kMicroPerSecond / 10);
+    }
+
+    if (strncmp(in_passwd, p_ctx->fn_passwd, kMaxPasswdLen) == 0)
+    {
+        p_ctx->state = SETUP;
+    }
+    else
+    {
+        show_line(p_ctx, 2, STR_SETUP_PASSWD_ERROR);
+        buzzer(kMicroPerSecond / 10);
+        usleep(kMicroPerSecond / 2);
+        p_ctx->state = IDLE;
     }
 
     return kSuccess;
