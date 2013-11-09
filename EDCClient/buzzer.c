@@ -44,7 +44,7 @@ const char kProjListFile[] = "./projects.list";
 const char kEDCLogFile[] = "./edc_tmp.log";
 const char kServerIni[] = "./edc_setup.conf";
 const char kNetworkIni[] = "./edc_network.conf";
-const char kSetupIpCmd[] = "./edc_net_setup.sh";
+const char kSetupIpCmd[] = "./edc_net_setup.sh ./edc_network.conf";
 const char kTempFileSuffix[] = ".tmp";
 const int kMaxEmpListSize = MAX_EMP_LIST_SIZE;
 const int kMaxEDCListSize = MAX_EDC_LIST_SIZE;
@@ -67,7 +67,7 @@ const int kMaxBufferlen = 4096;
 const int kMaxMemEDCLog = MAX_MEM_EDC_LOG;
 const int kMaxEDCLogLen = MAX_EDC_LOG_LEN;
 const int kMaxLogTypeLen = MAX_LOG_TYPE_LEN;
-const int kKeyScanPerSec = 10;
+const int kKeyScanPerSec = 5;
 const int kMaxYmdHMSLen = 20;
 const int kASCIIFn = 16;
 const int kASCIIUp = 17;
@@ -249,7 +249,7 @@ typedef struct _com_ctx
 
 typedef struct _key_ctx
 {
-    char cur_key;
+    unsigned char cur_key;
 } KEY_CTX;
 
 typedef struct _employee_data
@@ -412,18 +412,21 @@ int main(void)
     int ret_code = kSuccess;
     EDC_CTX ctx;
 
+    fprintf(stderr, "Initialize context...\n");
     if (init(&ctx, kDefINIFile))
     {
         fprintf(stderr, "Can not connect to the device.\n");
         goto INIT_FAIL;
     }
 
+    fprintf(stderr, "Close all LED...\n");
     if (set_led(kLEDNone) != kSuccess)
     {
         fprintf(stderr, "Set LED down failure.\n");
         goto INIT_FAIL;
     }
 
+    fprintf(stderr, "Clean LCD screen...\n");
     if(lcd_clean_scr(ctx.lkp_ctx) != kSuccess)
     {
         fprintf(stderr, "Can not clean screen.\n");
@@ -436,27 +439,34 @@ int main(void)
         goto INIT_FAIL;
     }
 
+    fprintf(stderr, "Enter main loop...\n");
     // Main Loop
     while (kTrue)
     {
         switch (ctx.state)
         {
         case IDLE:
+            fprintf(stderr, "Jump to idle state...\n");
             ret = idle_state(&ctx);
             break;
         case INVALID_CARD:
+            fprintf(stderr, "Jump to invalid state...\n");
             ret = invalid_card_state(&ctx);
            break;
         case QUOTA:
+            fprintf(stderr, "Jump to quota state...\n");
             ret = quota_state(&ctx);
             break;
         case SCANNING:
+            fprintf(stderr, "Jump to scanning state...\n");
             ret = scanning_state(&ctx);
             break;
         case SETUP:
+            fprintf(stderr, "Jump to setup state...\n");
             ret = setup_state(&ctx);
             break;
         case PASSWD:
+            fprintf(stderr, "Jump to setup pass state...\n");
             ret = passwd_state(&ctx);
             break;
         default:
@@ -563,7 +573,6 @@ void sync_list_thr_func(void* ctx)
 void keypad_thr_func(void *ctx)
 {
     EDC_CTX* p_ctx;
-    KEY_CTX* p_key_ctx;
     unsigned char in_key;
 
     if (!p_ctx)
@@ -573,8 +582,7 @@ void keypad_thr_func(void *ctx)
     }
 
     p_ctx = (EDC_CTX*)ctx;
-    p_key_ctx = &(p_ctx->key_ctx);
-    p_key_ctx->cur_key = 0;
+    p_ctx->key_ctx.cur_key = 0;
 
     while (kTrue)
     {   
@@ -582,13 +590,13 @@ void keypad_thr_func(void *ctx)
         {
             if (in_key != 0 )
             {
-                //fprintf(stderr, "input key: %d.\n", in_key);
-                p_key_ctx->cur_key = in_key;
+                fprintf(stderr, "input key: %d.\n", in_key);
+                p_ctx->key_ctx.cur_key = in_key;
             }
         }
         else
         {
-            //fprintf(stderr, "Get keypad failure.\n");
+            fprintf(stderr, "Get keypad failure, key: %d\n", in_key);
         }
         usleep(kMicroPerSecond / kKeyScanPerSec);
     }
@@ -1007,7 +1015,7 @@ int init(EDC_CTX *p_ctx, const char* com_ini_file)
         fprintf(stderr, "Can not open device.\n");
         return kFailure;
     }
-    
+
     if (load_com_setting(&p_ctx->com_ctx,
                 com_ini_file) != kSuccess)
     {
@@ -1043,12 +1051,15 @@ int init(EDC_CTX *p_ctx, const char* com_ini_file)
             return kFailure;
         }
     }
+    
 
     if (sync_lists(p_ctx) != kSuccess)
     {
         fprintf(stderr, "Sync list file failure.\n");
         return kFailure;
     }
+
+    
 
     if (pthread_create(&(p_ctx->keypad_thr), NULL,
                 (void*)keypad_thr_func, (void*)p_ctx) != kSuccess)
@@ -1073,7 +1084,6 @@ int init(EDC_CTX *p_ctx, const char* com_ini_file)
         fprintf(stderr, "Create sync thread failure.\n");
         return kFailure;
     }
-
 
     return kSuccess;
 
@@ -1705,6 +1715,7 @@ int idle_state(EDC_CTX *p_ctx)
         return kFailure;
     }
 
+
     if (lcd_clean_scr(p_ctx->lkp_ctx) != kSuccess)
     {
         fprintf(stderr, "Can not clean screen.\n");
@@ -1722,7 +1733,7 @@ int idle_state(EDC_CTX *p_ctx)
         fprintf(stderr, "Can not set LED.\n");
         return kFailure;
     }
-
+    
     if (set_backlight(p_ctx, 0x00))
     {
         fprintf(stderr, "Can not close backlight in idle.\n");
@@ -1730,12 +1741,12 @@ int idle_state(EDC_CTX *p_ctx)
     }
 
     show_line(p_ctx, 1, STR_PLEASE_CARD);
-    //show_line(p_ctx, 3, STR_EMPOLYEE_ID);
 
     // Initial user data
     memset(&p_ctx->curr_card_sn, 0, kMaxCardSNLen);
     memset(&p_ctx->project_code, 0, kMaxProjectCodeLen + 1);
     p_ctx->curr_emp_idx = 0;
+    fprintf(stderr, "Enter idle loop...\n");
     while (kTrue)
     {   
         if (show_datetime(p_ctx) != kSuccess)
@@ -1790,6 +1801,7 @@ int idle_state(EDC_CTX *p_ctx)
         }
 
         //catch carding
+        fprintf(stderr, "Catch RFID...\n");
         serWriteCOM(&p_ctx->com_ctx, kSendComSignal, sizeof(kSendComSignal));
         usleep(kMicroPerSecond / 10);
         if (read_rfid(p_ctx) == kSuccess)
@@ -1951,7 +1963,6 @@ int quota_state(EDC_CTX* p_ctx)
     }
     bl_usec = utime_remain;
 
-
     // Init print, start to statistic
     if (ptr_count_init(p_ctx->lkp_ctx) != kSuccess)
     {
@@ -2050,6 +2061,7 @@ int quota_state(EDC_CTX* p_ctx)
     //if ( (ptr_counter.u8_work_status & 0x02) == 1) {}
 
     print_printertype(&(ptr_counter.photocopy));
+    print_printertype(&(ptr_counter.scan));
     
     init_printertype(&empty_usage);
     if (usage_dup_modify(&ptr_counter.photocopy, &empty_usage) 
@@ -2729,7 +2741,6 @@ int setup_state(EDC_CTX* p_ctx)
             }
             else if (state_ret == kASCIIDown)
             {
-                fprintf(stderr, "Write to ini: %s\n", kServerIni);
                 strncpy(p_ctx->edc_id, new_edc_id, kMaxEDCIDLen+1);
                 strncpy(p_ctx->edc_ip, new_edc_ip, kMaxIPLen+1);
                 strncpy(p_ctx->submask, new_submask, kMaxIPLen+1);
@@ -2758,6 +2769,7 @@ int setup_state(EDC_CTX* p_ctx)
                     return kFailure;
                 }
                 fclose(fp_setup);
+                fprintf(stderr, "Write to file: %s\n", kServerIni);
 
                 if(!(fp_network = fopen(kNetworkIni, "w")))
                 {
@@ -2775,6 +2787,7 @@ int setup_state(EDC_CTX* p_ctx)
                     return kFailure;
                 }
                 fclose(fp_network);
+                fprintf(stderr, "Write to file: %s\n", kNetworkIni);
 
                 // Re-connect to server
                 if (p_ctx->connected == kTrue)
@@ -2787,12 +2800,14 @@ int setup_state(EDC_CTX* p_ctx)
                     }
                 }
 
+                fprintf(stderr, "Reset networking...\n");
                 if (system(kSetupIpCmd) != kSuccess)
                 {
                     fprintf(stderr, "Reset network setting failure.\n");
                     return kFailure;
                 }
 
+                fprintf(stderr, "Reconnect to server...\n");
                 if (connect_server(p_ctx) != kSuccess)
                 {
                     fprintf(stderr, "Connect to server failure.\n");

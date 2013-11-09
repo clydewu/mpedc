@@ -17,10 +17,10 @@ namespace EDCServer
         public const string kFieldEDCID = "@edc_id";
         public const string kFieldEDCLog = "@edc_log";
 
-        public const string kMonoA3 = "1";
-        public const string kMonoA4 = "2";
-        public const string kColorA3 = "3";
-        public const string kColorA4 = "4";
+        public const string kGrayBig = "GB";
+        public const string kGraySmall = "GS";
+        public const string kColorBig = "CB";
+        public const string kColorSmall = "CS";
 
         public const string kIniFile = "EDC_server_setup.ini";
         public const string kKeySection = "EDCServer";
