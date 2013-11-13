@@ -390,7 +390,8 @@ int append_edc_log(EDC_CTX*, const EDC_LOG_TYPE, const char*);
 int gen_cost_log(EDC_CTX*, const EDC_LOG_TYPE, PRINTERTYPE*);
 
 // Printer Utilities
-int usage_dup_modify(PRINTERTYPE* , PRINTERTYPE*);
+int usage_dup(PRINTERTYPE* , PRINTERTYPE*);
+int usage_compare(PRINTERTYPE *p1, PRINTERTYPE *p2);
 int print_printertype(PRINTERTYPE *);
 int init_printertype(PRINTERTYPE *usage);
 int count2cost(PRINTERCOUNT_V2 *ptr_counter, int paper_size_a, int paper_size_b, 
@@ -1921,7 +1922,9 @@ int invalid_card_state(EDC_CTX *p_ctx)
 
 int quota_state(EDC_CTX* p_ctx)
 {
+    char remain_sec[kMaxLineWord + 1];
     char remain_line[kMaxLineWord + 1];
+    char action_type[kMaxLineWord + 1];
     EMPLOYEE_DATA *curr_emp;
     EDC_DATA *curr_edc;
     int utime_remain;
@@ -1931,6 +1934,8 @@ int quota_state(EDC_CTX* p_ctx)
     PRINTERTYPE empty_usage;
     int cur_quota;
     int enject_or_timeout = 0;
+    int stage = 0; //0: stop, 1: start
+    int scan_flag = kFalse;
 
     int gb = 0;
     int gs = 0;
@@ -2000,6 +2005,7 @@ int quota_state(EDC_CTX* p_ctx)
     init_printertype(&(ptr_counter.scan));
     init_printertype(&photocopy_usage);
     init_printertype(&print_usage);
+    init_printertype(&empty_usage);
 
     cur_quota = curr_emp->curr_quota;
     if (show_quota_info(p_ctx, cur_quota, gb, gs, cb, cs) != kSuccess)
@@ -2033,19 +2039,29 @@ int quota_state(EDC_CTX* p_ctx)
             return kFailure;
         }
 
-        /* CLD for test
-        ptr_counter.photocopy.u16_gray_scale_a[4] = ttt++;
-        ptr_counter.u8_work_status = 0;
-        */
 
-        // duplicate and check modification
         /*
-        if (usage_dup_modify(&(ptr_counter.photocopy), &photocopy_usage) == kFalse
-            && usage_dup_modify(&(ptr_counter.print), &print_usage) == kFalse)
-        */
-
+         * How to detect scan?
+         * Due to ptr_count_get() can only provide correct status of scan
+         * Use below algorithm to detect scan occurring:
+         * 1. If u8_work_status change from 0 to 1,
+         *    This mean some action is done.
+         *    Check every counter, if neither of them be changed,
+         *    We can judge this action is scan.
+         * 2. If counter of scan is changed,
+         *    Simpliy we know scan is occured.
+         */
         if ((ptr_counter.u8_work_status & 0x01) == 1)
         {
+            if (stage == 1
+                && usage_compare(&(ptr_counter.photocopy), &empty_usage) == kFalse
+                && usage_compare(&(ptr_counter.print), &empty_usage) == kFalse
+                && usage_compare(&(ptr_counter.scan), &empty_usage) == kFalse)
+            {
+                scan_flag = kTrue;
+                stage = 0;
+            }
+
             // Operation end, continue countdown
             utime_remain -= kMicroPerSecond / 10;
             if (utime_remain <= 0)
@@ -2061,11 +2077,23 @@ int quota_state(EDC_CTX* p_ctx)
 
             count2cost(&ptr_counter, curr_edc->paper_size_a, curr_edc->paper_size_b,
                     &gb, &gs, &cb, &cs);
-            if (usage_dup_modify(&(ptr_counter.scan), &photocopy_usage) == kTrue)
+            if (usage_compare(&(ptr_counter.scan), &empty_usage) == kTrue)
             {
-                fprintf(stderr, "Scan counter change!!!!\n");
-                print_printertype(&(ptr_counter.scan));
+                scan_flag = kTrue;
+                snprintf(action_type, kMaxLineWord + 1, "S");
             }
+
+            if (usage_compare(&(ptr_counter.photocopy), &photocopy_usage) == kTrue)
+            {
+                snprintf(action_type, kMaxLineWord + 1, "C");
+            }
+            usage_dup(&(ptr_counter.photocopy), &photocopy_usage);
+
+            if (usage_compare(&(ptr_counter.print), &print_usage) == kTrue)
+            {
+                snprintf(action_type, kMaxLineWord + 1, "P");
+            }
+            usage_dup(&(ptr_counter.print), &print_usage);
 
             cur_quota = curr_emp->curr_quota
                         - gb * curr_edc->mono_a3
@@ -2082,9 +2110,10 @@ int quota_state(EDC_CTX* p_ctx)
         }
         
         usleep(kMicroPerSecond / 10);
-        snprintf(remain_line, kMaxLineWord, "%s: %d",
+        snprintf(remain_sec, kMaxLineWord + 1, "%s: %d",
                 STR_REMAIN_SEC, (int)(utime_remain / kMicroPerSecond));
 
+        left_right_str(remain_line, kMaxLineWord + 1, remain_sec, action_type);
         show_line(p_ctx, 3, remain_line);
     }
 
@@ -2096,7 +2125,7 @@ int quota_state(EDC_CTX* p_ctx)
     //print_printertype(&(ptr_counter.photocopy));
     
     init_printertype(&empty_usage);
-    if (usage_dup_modify(&ptr_counter.photocopy, &empty_usage) 
+    if (usage_compare(&ptr_counter.photocopy, &empty_usage) 
             && gen_cost_log(p_ctx, COPY, &ptr_counter.photocopy) != kSuccess)
     {
         fprintf(stderr, "Generate EDC log of copy failure\n");
@@ -2104,10 +2133,17 @@ int quota_state(EDC_CTX* p_ctx)
     }
 
     init_printertype(&empty_usage);
-    if (usage_dup_modify(&ptr_counter.print, &empty_usage) 
+    if (usage_compare(&ptr_counter.print, &empty_usage) 
             && gen_cost_log(p_ctx, PRINT, &ptr_counter.print) != kSuccess)
     {
-        fprintf(stderr, "Generate EDC log of copy failure\n");
+        fprintf(stderr, "Generate EDC log of print failure\n");
+        return kFailure;
+    }
+
+    if (scan_flag == kTrue
+            && gen_cost_log(p_ctx, SCAN, &ptr_counter.scan) != kSuccess)
+    {
+        fprintf(stderr, "Generate EDC log of scan failure\n");
         return kFailure;
     }
 
@@ -2298,9 +2334,8 @@ int count2cost(PRINTERCOUNT_V2 *ptr_counter, int paper_size_a, int paper_size_b,
     return kSuccess;
 }
 
-int usage_dup_modify(PRINTERTYPE *p_src, PRINTERTYPE *p_dest)
+int usage_dup(PRINTERTYPE *p_src, PRINTERTYPE *p_dest)
 {
-    int modify = kFalse;
     int i;
 
     if (!p_src || ! p_dest)
@@ -2311,18 +2346,6 @@ int usage_dup_modify(PRINTERTYPE *p_src, PRINTERTYPE *p_dest)
 
     for (i = 0; i < kMaxPrtPage; i++)
     {
-        if (p_dest->u16_gray_scale_a[i] != p_src->u16_gray_scale_a[i] ||
-            p_dest->u16_gray_scale_b[i] != p_src->u16_gray_scale_b[i] ||
-            p_dest->u16_color_a[i] != p_src->u16_color_a[i] ||
-            p_dest->u16_color_b[i] != p_src->u16_color_b[i] ||
-            p_dest->u16_double_gray_scale_a[i] != p_src->u16_double_gray_scale_a[i] ||
-            p_dest->u16_double_gray_scale_b[i] != p_src->u16_double_gray_scale_b[i] ||
-            p_dest->u16_double_color_a[i] != p_src->u16_double_color_a[i] ||
-            p_dest->u16_double_color_b[i] != p_src->u16_double_gray_scale_b[i] )
-        {
-            modify = kTrue;
-        }
-
         p_dest->u16_gray_scale_a[i] = p_src->u16_gray_scale_a[i];
         p_dest->u16_gray_scale_b[i] = p_src->u16_gray_scale_b[i];
         p_dest->u16_color_a[i] = p_src->u16_color_a[i];
@@ -2333,7 +2356,36 @@ int usage_dup_modify(PRINTERTYPE *p_src, PRINTERTYPE *p_dest)
         p_dest->u16_double_color_b[i] = p_src->u16_double_gray_scale_b[i];
     }
 
-    return modify;
+    return kTrue;
+}
+
+int usage_compare(PRINTERTYPE *p1, PRINTERTYPE *p2)
+{
+    int modify = kFalse;
+    int i;
+
+    if (!p1 || ! p2)
+    {
+        fprintf(stderr, "Parameter Fail!\n");
+        return kFailure;
+    }
+
+    for (i = 0; i < kMaxPrtPage; i++)
+    {
+        if (p1->u16_gray_scale_a[i] != p2->u16_gray_scale_a[i] ||
+            p1->u16_gray_scale_b[i] != p2->u16_gray_scale_b[i] ||
+            p1->u16_color_a[i] != p2->u16_color_a[i] ||
+            p1->u16_color_b[i] != p2->u16_color_b[i] ||
+            p1->u16_double_gray_scale_a[i] != p2->u16_double_gray_scale_a[i] ||
+            p1->u16_double_gray_scale_b[i] != p2->u16_double_gray_scale_b[i] ||
+            p1->u16_double_color_a[i] != p2->u16_double_color_a[i] ||
+            p1->u16_double_color_b[i] != p2->u16_double_gray_scale_b[i] )
+        {
+            return kFalse;
+        }
+    }
+
+    return kTrue;
 }
 
 int gen_cost_log(EDC_CTX* p_ctx, const EDC_LOG_TYPE log_type, PRINTERTYPE *usage)
