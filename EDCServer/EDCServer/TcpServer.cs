@@ -231,6 +231,7 @@ namespace EDCServer
             string gray_small = "";
             string color_big = "";
             string color_small = "";
+            int[] paper_size = new int[]{4, 5};     //NOTE default value is here!!!
 
             string sql_heartbeat = string.Format("UPDATE [dbo].[DataEDC] SET [dbo].[DataEDC].[EDCDT] = getdate() WHERE [dbo].[DataEDC].[EDCNO] = '{0}'", edc_id);
             cmd_heartbeat = new SqlCommand(sql_heartbeat, sqlConn);
@@ -272,6 +273,8 @@ namespace EDCServer
                 else if (pp_row["PrintType"].ToString() == C.kGraySmall)
                 {
                     gray_small = pp_row["PrintPay"].ToString();
+                    // !NOTE! only use gray_small setup to determine whole setup
+                    paper_size = get_smallesr_paper_size(pp_row["PaperType"].ToString());
                 }
                 else if (pp_row["PrintType"].ToString() == C.kColorBig)
                 {
@@ -290,9 +293,54 @@ namespace EDCServer
             edc_list.Append(color_big);
             edc_list.Append("\t");
             edc_list.Append(color_small);
+            edc_list.Append("\t");
+            edc_list.Append(paper_size[0].ToString());
+            edc_list.Append("\t");
+            edc_list.Append(paper_size[1].ToString());
             edc_list.Append("\n");
             edc_list.Insert(0, edc_list.Length.ToString() + "|");
             return edc_list.ToString();
+        }
+
+        private int[] get_smallesr_paper_size(string paper_type)
+        {
+            string[] tokens = paper_type.Split(';');
+            int[] smallest_paper_size = new int[2];
+            smallest_paper_size[0] = 4;
+            smallest_paper_size[1] = 5;
+
+            foreach (string token in tokens)
+            {
+                string psize = token.ToLower();
+                int val;
+
+                try
+                {
+                    val = int.Parse(psize.Substring(1));
+                }
+                catch
+                {
+                    // If format error, skip it
+                    continue;
+                }
+
+                if (psize.StartsWith("a"))
+                {
+                    if (val < smallest_paper_size[0])
+                    {
+                        smallest_paper_size[0] = val;
+                    }
+                }
+                else if (psize.StartsWith("b"))
+                {
+                    if (val < smallest_paper_size[1])
+                    {
+                        smallest_paper_size[1] = val;
+                    }
+                }
+            }
+
+            return smallest_paper_size;
         }
 
         private void sync_edc_log(string recv)
@@ -339,7 +387,7 @@ namespace EDCServer
                         {
                             string sql_insert_cc = string.Format("INSERT INTO [dbo].[CopyCount] (EDCNO, ProjectNO, UserNumber, PrintType, PrintCount, UseDT)" +
                                     "VALUES ('{0}', '{1}', '{2}', '{3}', '{4}', getdate())", edc_log.edc_no, edc_log.project_no, edc_log.emp_no, usage.Key, usage.Value);
-                            MessageBox.Show(sql_insert_cc);
+                            //MessageBox.Show(sql_insert_cc);
                             SqlCommand cmd_insert_cc = new SqlCommand(sql_insert_cc, sqlConn);
                             cmd_insert_cc.CommandType = System.Data.CommandType.Text;
                             if (cmd_insert_cc.ExecuteNonQuery() != 1)   
