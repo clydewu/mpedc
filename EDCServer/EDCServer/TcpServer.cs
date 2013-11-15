@@ -71,83 +71,76 @@ namespace EDCServer
             TcpClient tcpClient = (TcpClient)client;
             NetworkStream clientStream;
 
-            byte[] message = new byte[4096];
+            byte[] read_buf;
             byte[] send_buf;
             int bytesRead;
             string recv;
 
             clientStream = tcpClient.GetStream();
             System.Diagnostics.Debug.WriteLine("Start read from client" + client.GetHashCode());
-            try
+
+            while (true)
             {
-                while (true)
+                bytesRead = 0;
+
+                try
                 {
-                    bytesRead = 0;
-
-                    try
-                    {
-                        //blocks until a client sends a message
-                        bytesRead = clientStream.Read(message, 0, 4096);
-                    }
-                    catch
-                    {
-                        //a socket error has occured
-                        System.Diagnostics.Debug.WriteLine("IOError");
-                        break;
-                    }
-
-                    if (bytesRead == 0)
-                    {
-                        //the client has disconnected from the server
-                        System.Diagnostics.Debug.WriteLine("Disconnect");
-                        break;
-                    }
-
-                    //message has successfully been received
-                    ASCIIEncoding encoder = new ASCIIEncoding();
-                    recv = encoder.GetString(message, 0, bytesRead);
-                    System.Diagnostics.Debug.WriteLine(recv);
-
-                    string[] protocol_list = recv.Split('\n')[0].Split('\t');
-                    string cmd = protocol_list[0];
-
-                    switch (cmd)
-                    {
-                        case C.kSyncEmpCmd:
-                            send_buf = encoder.GetBytes(get_employee_list(protocol_list));
-                            System.Diagnostics.Debug.WriteLine(send_buf);
-                            clientStream.Write(send_buf, 0, send_buf.Length);
-                            //clientStream.Write(send_buf, 0, 0);
-                            clientStream.Flush();
-                            break;
-                        case C.kSyncEDCCmd:
-                            send_buf = encoder.GetBytes(get_edc_list(protocol_list));
-                            System.Diagnostics.Debug.WriteLine(send_buf);
-                            clientStream.Write(send_buf, 0, send_buf.Length);
-                            //clientStream.Write(send_buf, 0, 0);
-                            clientStream.Flush();
-                            break;
-                        case C.kSyncProjCmd:
-                            send_buf = encoder.GetBytes(get_proj_list(protocol_list));
-                            System.Diagnostics.Debug.WriteLine(send_buf);
-                            clientStream.Write(send_buf, 0, send_buf.Length);
-                            //clientStream.Write(send_buf, 0, 0);
-                            clientStream.Flush();
-                            break;
-                        case C.kSyncLogCmd:
-                            sync_edc_log(recv);
-
-                            break;
-                        default:
-                            break;
-                    }
+                    //blocks until a client sends a message 
+                    read_buf = new byte[4096];
+                    bytesRead = clientStream.Read(read_buf, 0, 4096);
                 }
-            }
-            catch (Exception e)
-            {
-                MessageBox.Show(e.Message);
-                MessageBox.Show(e.StackTrace);
+                catch
+                {
+                    //a socket error has occured
+                    System.Diagnostics.Debug.WriteLine("IOError");
+                    break;
+                }
 
+                if (bytesRead == 0)
+                {
+                    //the client has disconnected from the server
+                    System.Diagnostics.Debug.WriteLine("Disconnect");
+                    break;
+                }
+
+                //message has successfully been received
+                ASCIIEncoding encoder = new ASCIIEncoding();
+                recv = encoder.GetString(read_buf, 0, bytesRead);
+                System.Diagnostics.Debug.WriteLine(recv);
+
+                string[] protocol_list = recv.Split('\n')[0].Split('\t');
+                string cmd = protocol_list[0];
+
+                switch (cmd)
+                {
+                    case C.kSyncEmpCmd:
+                        send_buf = encoder.GetBytes(get_employee_list(protocol_list));
+                        System.Diagnostics.Debug.WriteLine(send_buf);
+                        clientStream.Write(send_buf, 0, send_buf.Length);
+                        //clientStream.Write(send_buf, 0, 0);
+                        clientStream.Flush();
+                        break;
+                    case C.kSyncEDCCmd:
+                        send_buf = encoder.GetBytes(get_edc_list(protocol_list));
+                        System.Diagnostics.Debug.WriteLine(send_buf);
+                        clientStream.Write(send_buf, 0, send_buf.Length);
+                        //clientStream.Write(send_buf, 0, 0);
+                        clientStream.Flush();
+                        break;
+                    case C.kSyncProjCmd:
+                        send_buf = encoder.GetBytes(get_proj_list(protocol_list));
+                        System.Diagnostics.Debug.WriteLine(send_buf);
+                        clientStream.Write(send_buf, 0, send_buf.Length);
+                        //clientStream.Write(send_buf, 0, 0);
+                        clientStream.Flush();
+                        break;
+                    case C.kSyncLogCmd:
+                        sync_edc_log(recv);
+
+                        break;
+                    default:
+                        break;
+                }
             }
 
             tcpClient.Close();
@@ -413,6 +406,7 @@ namespace EDCServer
             edc_log.project_no = token[2];
             edc_log.emp_no = token[3];
             edc_log.log_time = token[4];
+
             edc_log.content = token[5];
             return edc_log;
         }

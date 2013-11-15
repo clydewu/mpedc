@@ -391,7 +391,7 @@ int gen_cost_log(EDC_CTX*, const EDC_LOG_TYPE, PRINTERTYPE*);
 
 // Printer Utilities
 int usage_dup(PRINTERTYPE* , PRINTERTYPE*);
-int usage_compare(PRINTERTYPE *p1, PRINTERTYPE *p2);
+int usage_same_as(PRINTERTYPE *p1, PRINTERTYPE *p2);
 int print_printertype(PRINTERTYPE *);
 int init_printertype(PRINTERTYPE *usage);
 int count2cost(PRINTERCOUNT_V2 *ptr_counter, int paper_size_a, int paper_size_b, 
@@ -760,7 +760,7 @@ int append_edc_log(EDC_CTX *p_ctx, const EDC_LOG_TYPE type, const char *content)
     }
     else
     {
-        if (snprintf(p_ctx->edc_tmp_log[p_ctx->edc_log_num], kMaxEDCLogLen, "%s\t%s\t%s\t%s\t%s\t%s",
+        if (snprintf(p_ctx->edc_tmp_log[p_ctx->edc_log_num], kMaxEDCLogLen, "%s\t%s\t%s\t%s\t%s\t%s\n",
                     TYPE2STR[type],
                     p_ctx->edc_id,
                     p_ctx->project_code,
@@ -2054,9 +2054,9 @@ int quota_state(EDC_CTX* p_ctx)
         if ((ptr_counter.u8_work_status & 0x01) == 1)
         {
             if (stage == 1
-                && usage_compare(&(ptr_counter.photocopy), &empty_usage) == kFalse
-                && usage_compare(&(ptr_counter.print), &empty_usage) == kFalse
-                && usage_compare(&(ptr_counter.scan), &empty_usage) == kFalse)
+                && usage_same_as(&(ptr_counter.photocopy), &empty_usage) == kFalse
+                && usage_same_as(&(ptr_counter.print), &empty_usage) == kFalse
+                && usage_same_as(&(ptr_counter.scan), &empty_usage) == kFalse)
             {
                 scan_flag = kTrue;
                 stage = 0;
@@ -2077,19 +2077,19 @@ int quota_state(EDC_CTX* p_ctx)
 
             count2cost(&ptr_counter, curr_edc->paper_size_a, curr_edc->paper_size_b,
                     &gb, &gs, &cb, &cs);
-            if (usage_compare(&(ptr_counter.scan), &empty_usage) == kTrue)
+            if (usage_same_as(&(ptr_counter.scan), &empty_usage) == kTrue)
             {
                 scan_flag = kTrue;
                 snprintf(action_type, kMaxLineWord + 1, "S");
             }
 
-            if (usage_compare(&(ptr_counter.photocopy), &photocopy_usage) == kTrue)
+            if (!usage_same_as(&(ptr_counter.photocopy), &photocopy_usage) == kTrue)
             {
                 snprintf(action_type, kMaxLineWord + 1, "C");
             }
             usage_dup(&(ptr_counter.photocopy), &photocopy_usage);
 
-            if (usage_compare(&(ptr_counter.print), &print_usage) == kTrue)
+            if (!usage_same_as(&(ptr_counter.print), &print_usage) == kTrue)
             {
                 snprintf(action_type, kMaxLineWord + 1, "P");
             }
@@ -2125,7 +2125,7 @@ int quota_state(EDC_CTX* p_ctx)
     //print_printertype(&(ptr_counter.photocopy));
     
     init_printertype(&empty_usage);
-    if (usage_compare(&ptr_counter.photocopy, &empty_usage) 
+    if (!usage_same_as(&ptr_counter.photocopy, &empty_usage) 
             && gen_cost_log(p_ctx, COPY, &ptr_counter.photocopy) != kSuccess)
     {
         fprintf(stderr, "Generate EDC log of copy failure\n");
@@ -2133,7 +2133,7 @@ int quota_state(EDC_CTX* p_ctx)
     }
 
     init_printertype(&empty_usage);
-    if (usage_compare(&ptr_counter.print, &empty_usage) 
+    if (!usage_same_as(&ptr_counter.print, &empty_usage) 
             && gen_cost_log(p_ctx, PRINT, &ptr_counter.print) != kSuccess)
     {
         fprintf(stderr, "Generate EDC log of print failure\n");
@@ -2359,9 +2359,8 @@ int usage_dup(PRINTERTYPE *p_src, PRINTERTYPE *p_dest)
     return kTrue;
 }
 
-int usage_compare(PRINTERTYPE *p1, PRINTERTYPE *p2)
+int usage_same_as(PRINTERTYPE *p1, PRINTERTYPE *p2)
 {
-    int modify = kFalse;
     int i;
 
     if (!p1 || ! p2)
