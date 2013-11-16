@@ -32,6 +32,7 @@ namespace EDCServer
         public const int kSize = 256;
 
         public const int kDefPort = 3000;
+        public const int kBufSize = 4;
     }
 
     struct EDCLOG

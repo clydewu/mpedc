@@ -70,24 +70,24 @@ namespace EDCServer
         {
             TcpClient tcpClient = (TcpClient)client;
             NetworkStream clientStream;
-
-            byte[] read_buf;
+            byte[] buf_read;
             byte[] send_buf;
-            int bytesRead;
-            string recv;
+            int bytes_read;
+            string recv_str = "";
+            int content_length = 0;
+            List<string> command_list = new List<string>();
 
             clientStream = tcpClient.GetStream();
             System.Diagnostics.Debug.WriteLine("Start read from client" + client.GetHashCode());
 
             while (true)
             {
-                bytesRead = 0;
-
+                bytes_read = 0;
                 try
                 {
                     //blocks until a client sends a message 
-                    read_buf = new byte[4096];
-                    bytesRead = clientStream.Read(read_buf, 0, 4096);
+                    buf_read = new byte[C.kBufSize];
+                    bytes_read = clientStream.Read(buf_read, 0, C.kBufSize);
                 }
                 catch
                 {
@@ -96,50 +96,79 @@ namespace EDCServer
                     break;
                 }
 
-                if (bytesRead == 0)
+                if (bytes_read == 0)
                 {
                     //the client has disconnected from the server
                     System.Diagnostics.Debug.WriteLine("Disconnect");
                     break;
+                    //throw new Exception("Disconnect");
                 }
 
                 //message has successfully been received
                 ASCIIEncoding encoder = new ASCIIEncoding();
-                recv = encoder.GetString(read_buf, 0, bytesRead);
-                System.Diagnostics.Debug.WriteLine(recv);
+                recv_str += encoder.GetString(buf_read, 0, bytes_read);
 
-                string[] protocol_list = recv.Split('\n')[0].Split('\t');
-                string cmd = protocol_list[0];
-
-                switch (cmd)
+                while (true) 
                 {
-                    case C.kSyncEmpCmd:
-                        send_buf = encoder.GetBytes(get_employee_list(protocol_list));
-                        System.Diagnostics.Debug.WriteLine(send_buf);
-                        clientStream.Write(send_buf, 0, send_buf.Length);
-                        //clientStream.Write(send_buf, 0, 0);
-                        clientStream.Flush();
-                        break;
-                    case C.kSyncEDCCmd:
-                        send_buf = encoder.GetBytes(get_edc_list(protocol_list));
-                        System.Diagnostics.Debug.WriteLine(send_buf);
-                        clientStream.Write(send_buf, 0, send_buf.Length);
-                        //clientStream.Write(send_buf, 0, 0);
-                        clientStream.Flush();
-                        break;
-                    case C.kSyncProjCmd:
-                        send_buf = encoder.GetBytes(get_proj_list(protocol_list));
-                        System.Diagnostics.Debug.WriteLine(send_buf);
-                        clientStream.Write(send_buf, 0, send_buf.Length);
-                        //clientStream.Write(send_buf, 0, 0);
-                        clientStream.Flush();
-                        break;
-                    case C.kSyncLogCmd:
-                        sync_edc_log(recv);
+                    // header include '|'
+                    int header_len = recv_str.IndexOf("|") + 1;
+                    if (content_length == 0)
+                    {
+                        content_length = int.Parse(recv_str.Substring(0, header_len - 1));
+                    }
 
+                    if (recv_str.Length - header_len < content_length)
+                    {
+                        //There are still unread payload, read more
                         break;
-                    default:
-                        break;
+                    }
+
+                    // OK, now I have at least one command
+                    string command = recv_str.Substring(header_len, content_length);
+
+                    string[] cmd_tokens = command.Split('\n')[0].Split('\t');
+                    string cmd = cmd_tokens[0];
+
+                    switch (cmd)
+                    {
+                        case C.kSyncEmpCmd:
+                            send_buf = encoder.GetBytes(get_employee_list(cmd_tokens));
+                            System.Diagnostics.Debug.WriteLine(send_buf);
+                            clientStream.Write(send_buf, 0, send_buf.Length);
+                            //clientStream.Write(send_buf, 0, 0);
+                            clientStream.Flush();
+                            break;
+                        case C.kSyncEDCCmd:
+                            send_buf = encoder.GetBytes(get_edc_list(cmd_tokens));
+                            System.Diagnostics.Debug.WriteLine(send_buf);
+                            clientStream.Write(send_buf, 0, send_buf.Length);
+                            //clientStream.Write(send_buf, 0, 0);
+                            clientStream.Flush();
+                            break;
+                        case C.kSyncProjCmd:
+                            send_buf = encoder.GetBytes(get_proj_list(cmd_tokens));
+                            System.Diagnostics.Debug.WriteLine(send_buf);
+                            clientStream.Write(send_buf, 0, send_buf.Length);
+                            //clientStream.Write(send_buf, 0, 0);
+                            clientStream.Flush();
+                            break;
+                        case C.kSyncLogCmd:
+                            sync_edc_log(command);
+                            break;
+                        default:
+                            break;
+                    }
+
+                    int protocol_len = header_len + content_length;
+                    if (recv_str.Length > protocol_len)
+                    {
+                        recv_str = recv_str.Substring(header_len + content_length);
+                    }
+                    else
+                    {
+                        recv_str = "";
+                    }
+                    content_length = 0;
                 }
             }
 

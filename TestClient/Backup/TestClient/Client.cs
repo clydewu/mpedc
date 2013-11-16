@@ -39,14 +39,14 @@ namespace TestClient
             string read_str;
             byte[] read_buf = new byte[4096];
             int read_len;
-            byte[] buffer = encoder.GetBytes(sendTxt.Text.Replace("\\t", "\t"));
-            //byte[] buffer = encoder.GetBytes("SYNC_PROJ\t001");
+            //byte[] buffer = encoder.GetBytes(sendTxt.Text);
+            byte[] buffer = encoder.GetBytes("SYNC_PROJ\t001");
 
             clientStream.Write(buffer, 0, buffer.Length);
             clientStream.Flush();
-            //read_len = clientStream.Read(read_buf, 0, 4096);
-            //read_str = encoder.GetString(read_buf, 0, read_len);
-            //recvTxt.Text = read_str;
+            read_len = clientStream.Read(read_buf, 0, 4096);
+            read_str = encoder.GetString(read_buf, 0, read_len);
+            recvTxt.Text = read_str;
         }
 
         private void DisconnectBtn_Click(object sender, EventArgs e)
