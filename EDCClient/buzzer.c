@@ -165,6 +165,7 @@ const char STR_SETUP_NEWSET[] = "設定:";
 const char STR_SETUP_ERROR[] = "格式錯誤";
 const char STR_SETUP_PASSWD_ERROR[] = "密碼錯誤";
 const char STR_SETUP_INPUT_PASSWD[] = "輸入密碼";
+const char STR_DISABLE[] = "無法使用";
 
 enum RET{
         RET_SUCCESS = 0,           // 成功。
@@ -1797,65 +1798,72 @@ int idle_state(EDC_CTX *p_ctx)
         {
             return kFailure;
         }
-
-        //catch input and update screen
-        if (get_press_key(p_ctx, &in_key) != kSuccess)
+        
+        if (p_ctx->edc_num == 0)
         {
-            //fprintf(stderr, "Can not get keypad.\n");
-            return kFailure;
+            show_line(p_ctx, 1, STR_DISABLE);
         }
         else
         {
-            if (in_key != 0 )
+            //catch input and update screen
+            if (get_press_key(p_ctx, &in_key) != kSuccess)
             {
-                if (in_key == kASCIIFn)
-                {
-                    p_ctx->state = PASSWD;
-                    break;
-                }
-                else if (in_key == kASCIIClear 
-                    && in_pos > p_ctx->project_code)
-                {
-                    *--in_pos = '\0';
-                }
-                else if (in_key == kASCIICancel)
-                {
-                    in_pos = p_ctx->project_code;
-                    *in_pos = '\0';
-                }
-                else if (in_key >= kASCII_zero && in_key <= kASCII_nine
-                        && in_pos - p_ctx->project_code < kMaxProjectCodeLen)
-                {
-                    *in_pos++ = in_key;
-                    *in_pos = '\0';
-                }
-
-                //fprintf(stderr, "project code: %s\n", p_ctx->project_code);
-
-                show_line(p_ctx, 2, p_ctx->project_code);
-            }
-        }
-
-        //catch carding
-        serWriteCOM(&p_ctx->com_ctx, kSendComSignal, sizeof(kSendComSignal));
-        usleep(kMicroPerSecond / 10);
-        if (read_rfid(p_ctx) == kSuccess)
-        {
-            fprintf(stderr, "Card: %s\n", p_ctx->curr_card_sn);
-            if (is_valid_card(p_ctx))
-            {
-                p_ctx->state = QUOTA;
-                buzzer((kMicroPerSecond / 10) * 1);
+                //fprintf(stderr, "Can not get keypad.\n");
+                return kFailure;
             }
             else
             {
-                p_ctx->state = INVALID_CARD;
+                if (in_key != 0 )
+                {
+                    if (in_key == kASCIIFn)
+                    {
+                        p_ctx->state = PASSWD;
+                        break;
+                    }
+                    else if (in_key == kASCIIClear 
+                        && in_pos > p_ctx->project_code)
+                    {
+                        *--in_pos = '\0';
+                    }
+                    else if (in_key == kASCIICancel)
+                    {
+                        in_pos = p_ctx->project_code;
+                        *in_pos = '\0';
+                    }
+                    else if (in_key >= kASCII_zero && in_key <= kASCII_nine
+                            && in_pos - p_ctx->project_code < kMaxProjectCodeLen)
+                    {
+                        *in_pos++ = in_key;
+                        *in_pos = '\0';
+                    }
+
+                    //fprintf(stderr, "project code: %s\n", p_ctx->project_code);
+
+                    show_line(p_ctx, 2, p_ctx->project_code);
+                }
             }
-            break;
+
+            //catch carding
+            serWriteCOM(&p_ctx->com_ctx, kSendComSignal, sizeof(kSendComSignal));
+            usleep(kMicroPerSecond / 10);
+            if (read_rfid(p_ctx) == kSuccess)
+            {
+                fprintf(stderr, "Card: %s\n", p_ctx->curr_card_sn);
+                if (is_valid_card(p_ctx))
+                {
+                    p_ctx->state = QUOTA;
+                    buzzer((kMicroPerSecond / 10) * 1);
+                }
+                else
+                {
+                    p_ctx->state = INVALID_CARD;
+                }
+                break;
+            }
         }
         usleep(kMicroPerSecond / 10);
-
     }
+
     return kSuccess;
 }
 
@@ -3460,6 +3468,10 @@ int DataConvertCMD(char *buf, char *buf1, int len, PCMD_DATA cmd_buffer)
     return 0;
 }
 
+/*
+ * Fetch string before character chr into dest.
+ * return length of the string.
+ */
 int get_str_before_char(const char* line, const char chr, char* dest, int dest_len)
 {
     char *ptr;
@@ -3520,7 +3532,7 @@ int load_employee_list(EMPLOYEE_DATA *p_list, const int list_size,
         return kFailure;
     }
 
-    while (++line_count <= list_size &&
+    while (line_count < list_size &&
             fgets(line, kMaxReadLineLen, fList))
     {
         cur_ptr = line;
@@ -3568,6 +3580,7 @@ int load_employee_list(EMPLOYEE_DATA *p_list, const int list_size,
         list_ptr->curr_quota = (int)strtol(temp, NULL, 10);
 
         list_ptr++;
+        line_count++;
     }
     fclose(fList);
 
@@ -3605,7 +3618,7 @@ LOAD_EMP_FAIL_LINE:
 int load_edc_list(EDC_DATA *p_list, const int list_size, const char *file_name, pthread_mutex_t *p_mutex)
 {
     FILE *fList;
-    int line_count = 1;
+    int line_count = 0;
     char line[kMaxReadLineLen];
     char temp[kMaxReadLineLen];
     char *cur_ptr;
@@ -3633,7 +3646,7 @@ int load_edc_list(EDC_DATA *p_list, const int list_size, const char *file_name, 
     }
 
     //<EDC_ID>\t<EDC_IP>\t<PRT_IP>\t<TIMEOUT>\t<SHOW_QUOTA>\t<MonoA3>\t<MonoA4>\t<ColorA3>\t<ColorA4>\n
-    while ( ++line_count <= list_size &&
+    while ( line_count < list_size &&
             fgets(line, kMaxReadLineLen, fList))
     {
         cur_ptr = line;
@@ -3722,7 +3735,9 @@ int load_edc_list(EDC_DATA *p_list, const int list_size, const char *file_name, 
         list_ptr->paper_size_b = (int)strtol(temp, NULL, 10);
 
         list_ptr++;
+        line_count++;
     }
+
     fclose(fList);
     if (p_mutex && pthread_mutex_unlock(p_mutex))
     {
@@ -3763,7 +3778,7 @@ LOAD_EDC_FAIL_LINE:
 int load_proj_list(PROJ_DATA *p_list, const int list_size, const char *file_name, pthread_mutex_t *p_mutex)
 {
     FILE *fList;
-    int line_count = 1;
+    int line_count = 0;
     char line[kMaxReadLineLen];
     char *cur_ptr;
     int get_len;
@@ -3789,7 +3804,7 @@ int load_proj_list(PROJ_DATA *p_list, const int list_size, const char *file_name
         return kFailure;
     }
 
-    while ( ++line_count <= list_size &&
+    while ( line_count < list_size &&
             fgets(line, kMaxReadLineLen, fList))
     {
         cur_ptr = line;
@@ -3799,7 +3814,9 @@ int load_proj_list(PROJ_DATA *p_list, const int list_size, const char *file_name
             goto LOAD_PROJ_FAIL_LINE;
         }
         list_ptr++;
+        line_count++;
     }
+    
     fclose(fList);
     if (p_mutex && pthread_mutex_unlock(p_mutex))
     {

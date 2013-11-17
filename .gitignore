@@ -3,3 +3,6 @@ EDCServer/EDCServer/obj/*
 EDCServer/EDCServer/bin/*
 EDCClient/cscope.out
 EDCClient/test.out
+
+TestClient/TestClient/bin/
+TestClient/TestClient/obj/

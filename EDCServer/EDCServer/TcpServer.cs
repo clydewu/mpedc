@@ -74,7 +74,7 @@ namespace EDCServer
             byte[] send_buf;
             int bytes_read;
             string recv_str = "";
-            int content_length = 0;
+            
             List<string> command_list = new List<string>();
 
             clientStream = tcpClient.GetStream();
@@ -112,9 +112,22 @@ namespace EDCServer
                 {
                     // header include '|'
                     int header_len = recv_str.IndexOf("|") + 1;
-                    if (content_length == 0)
+                    int content_length = 0;
+                    if (header_len <= 1)
+                    {
+                        //Can't find '|', read more
+                        break;
+                    }
+
+                    try
                     {
                         content_length = int.Parse(recv_str.Substring(0, header_len - 1));
+                    }
+                    catch
+                    {
+                        //Protocol error, skip current receive payload
+                        recv_str = "";
+                        break;
                     }
 
                     if (recv_str.Length - header_len < content_length)
@@ -167,8 +180,8 @@ namespace EDCServer
                     else
                     {
                         recv_str = "";
+                        break;
                     }
-                    content_length = 0;
                 }
             }
 
@@ -228,7 +241,7 @@ namespace EDCServer
 
             while (sql_reader.Read())
             {
-                proj_list.Append(sql_reader["ProjectNO"]);
+                proj_list.Append(sql_reader["ProjectNO"]);  
                 proj_list.Append("\n");
             }
             sql_reader.Close();
@@ -255,71 +268,77 @@ namespace EDCServer
             string color_small = "";
             int[] paper_size = new int[]{4, 5};     //NOTE default value is here!!!
 
-            string sql_heartbeat = string.Format("UPDATE [dbo].[DataEDC] SET [dbo].[DataEDC].[EDCDT] = getdate() WHERE [dbo].[DataEDC].[EDCNO] = '{0}'", edc_id);
-            cmd_heartbeat = new SqlCommand(sql_heartbeat, sqlConn);
-            cmd_heartbeat.CommandType = System.Data.CommandType.Text;
-            if (cmd_heartbeat.ExecuteNonQuery() != 1)
-            {
-                System.Diagnostics.Debug.WriteLine("Write EDC heartbeat to DB error");
-            }
-
             string sql_select = string.Format("SELECT * FROM [dbo].[DataEDC] WHERE [dbo].[DataEDC].[EDCNO] = '{0}'", edc_id);
             cmd_edc = new SqlCommand(sql_select, sqlConn);
             cmd_edc.CommandType = System.Data.CommandType.Text;
             adapter_edc = new SqlDataAdapter(cmd_edc);
             adapter_edc.Fill(edc_dataset, "EDC");
 
-            string sql_printpay = string.Format("SELECT * FROM [dbo].[DataPrintPay]");
-            cmd_pp = new SqlCommand(sql_printpay, sqlConn);
-            cmd_pp.CommandType = System.Data.CommandType.Text;
-            adapter_pp = new SqlDataAdapter(cmd_pp);
-            adapter_pp.Fill(pp_dataset, "PrintPay");
-
-            edc_list.Append(edc_dataset.Tables["EDC"].Rows[0]["EDCNO"]);
-            edc_list.Append("\t");
-            edc_list.Append(edc_dataset.Tables["EDC"].Rows[0]["EDCIP"]);
-            edc_list.Append("\t");
-            edc_list.Append(edc_dataset.Tables["EDC"].Rows[0]["MachineIP"]);
-            edc_list.Append("\t");
-            edc_list.Append(edc_dataset.Tables["EDC"].Rows[0]["EDCLimitTime"]);
-            edc_list.Append("\t");
-            edc_list.Append(edc_dataset.Tables["EDC"].Rows[0]["EDCShowLimitTime"]);
-            edc_list.Append("\t");
-            
-            foreach (DataRow pp_row in pp_dataset.Tables["Printpay"].Rows)
+            if (edc_dataset.Tables[0].Rows.Count > 0)
             {
-                if (pp_row["PrintType"].ToString() == C.kGrayBig)
+                string sql_heartbeat = string.Format("UPDATE [dbo].[DataEDC] SET [dbo].[DataEDC].[EDCDT] = getdate() WHERE [dbo].[DataEDC].[EDCNO] = '{0}'", edc_id);
+                cmd_heartbeat = new SqlCommand(sql_heartbeat, sqlConn);
+                cmd_heartbeat.CommandType = System.Data.CommandType.Text;
+                if (cmd_heartbeat.ExecuteNonQuery() != 1)
                 {
-                    gray_big = pp_row["PrintPay"].ToString();
+                    System.Diagnostics.Debug.WriteLine("Write EDC heartbeat to DB error");
                 }
-                else if (pp_row["PrintType"].ToString() == C.kGraySmall)
+
+
+
+                string sql_printpay = string.Format("SELECT * FROM [dbo].[DataPrintPay]");
+                cmd_pp = new SqlCommand(sql_printpay, sqlConn);
+                cmd_pp.CommandType = System.Data.CommandType.Text;
+                adapter_pp = new SqlDataAdapter(cmd_pp);
+                adapter_pp.Fill(pp_dataset, "PrintPay");
+
+                edc_list.Append(edc_dataset.Tables["EDC"].Rows[0]["EDCNO"]);
+                edc_list.Append("\t");
+                edc_list.Append(edc_dataset.Tables["EDC"].Rows[0]["EDCIP"]);
+                edc_list.Append("\t");
+                edc_list.Append(edc_dataset.Tables["EDC"].Rows[0]["MachineIP"]);
+                edc_list.Append("\t");
+                edc_list.Append(edc_dataset.Tables["EDC"].Rows[0]["EDCLimitTime"]);
+                edc_list.Append("\t");
+                edc_list.Append(edc_dataset.Tables["EDC"].Rows[0]["EDCShowLimitTime"]);
+                edc_list.Append("\t");
+
+                foreach (DataRow pp_row in pp_dataset.Tables["Printpay"].Rows)
                 {
-                    gray_small = pp_row["PrintPay"].ToString();
-                    // !NOTE! only use gray_small setup to determine whole setup
-                    paper_size = get_smallesr_paper_size(pp_row["PaperType"].ToString());
+                    if (pp_row["PrintType"].ToString() == C.kGrayBig)
+                    {
+                        gray_big = pp_row["PrintPay"].ToString();
+                    }
+                    else if (pp_row["PrintType"].ToString() == C.kGraySmall)
+                    {
+                        gray_small = pp_row["PrintPay"].ToString();
+                        // !NOTE! only use gray_small setup to determine whole setup
+                        paper_size = get_smallesr_paper_size(pp_row["PaperType"].ToString());
+                    }
+                    else if (pp_row["PrintType"].ToString() == C.kColorBig)
+                    {
+                        color_big = pp_row["PrintPay"].ToString();
+                    }
+                    else if (pp_row["PrintType"].ToString() == C.kColorSmall)
+                    {
+                        color_small = pp_row["PrintPay"].ToString();
+                    }
                 }
-                else if (pp_row["PrintType"].ToString() == C.kColorBig)
-                {
-                    color_big = pp_row["PrintPay"].ToString();
-                }
-                else if (pp_row["PrintType"].ToString() == C.kColorSmall)
-                {
-                    color_small = pp_row["PrintPay"].ToString();
-                }
+
+                edc_list.Append(gray_big);
+                edc_list.Append("\t");
+                edc_list.Append(gray_small);
+                edc_list.Append("\t");
+                edc_list.Append(color_big);
+                edc_list.Append("\t");
+                edc_list.Append(color_small);
+                edc_list.Append("\t");
+                edc_list.Append(paper_size[0].ToString());
+                edc_list.Append("\t");
+                edc_list.Append(paper_size[1].ToString());
+                edc_list.Append("\n");
             }
 
-            edc_list.Append(gray_big);
-            edc_list.Append("\t");
-            edc_list.Append(gray_small);
-            edc_list.Append("\t");
-            edc_list.Append(color_big);
-            edc_list.Append("\t");
-            edc_list.Append(color_small);
-            edc_list.Append("\t");
-            edc_list.Append(paper_size[0].ToString());
-            edc_list.Append("\t");
-            edc_list.Append(paper_size[1].ToString());
-            edc_list.Append("\n");
             edc_list.Insert(0, edc_list.Length.ToString() + "|");
             return edc_list.ToString();
         }
