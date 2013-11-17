@@ -141,26 +141,30 @@ namespace EDCServer
 
                     string[] cmd_tokens = command.Split('\n')[0].Split('\t');
                     string cmd = cmd_tokens[0];
+                    string send_str;
 
                     switch (cmd)
                     {
                         case C.kSyncEmpCmd:
-                            send_buf = encoder.GetBytes(get_employee_list(cmd_tokens));
-                            System.Diagnostics.Debug.WriteLine(send_buf);
+                            send_str = get_employee_list(cmd_tokens);
+                            send_buf = encoder.GetBytes(send_str);
+                            System.Diagnostics.Debug.WriteLine(send_str);
                             clientStream.Write(send_buf, 0, send_buf.Length);
                             //clientStream.Write(send_buf, 0, 0);
                             clientStream.Flush();
                             break;
                         case C.kSyncEDCCmd:
-                            send_buf = encoder.GetBytes(get_edc_list(cmd_tokens));
-                            System.Diagnostics.Debug.WriteLine(send_buf);
+                            send_str = get_edc_list(cmd_tokens);
+                            send_buf = encoder.GetBytes(send_str);
+                            System.Diagnostics.Debug.WriteLine(send_str);
                             clientStream.Write(send_buf, 0, send_buf.Length);
                             //clientStream.Write(send_buf, 0, 0);
                             clientStream.Flush();
                             break;
                         case C.kSyncProjCmd:
-                            send_buf = encoder.GetBytes(get_proj_list(cmd_tokens));
-                            System.Diagnostics.Debug.WriteLine(send_buf);
+                            send_str = get_proj_list(cmd_tokens);
+                            send_buf = encoder.GetBytes(send_str);
+                            System.Diagnostics.Debug.WriteLine(send_str);
                             clientStream.Write(send_buf, 0, send_buf.Length);
                             //clientStream.Write(send_buf, 0, 0);
                             clientStream.Flush();

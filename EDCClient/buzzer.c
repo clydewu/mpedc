@@ -67,6 +67,7 @@ const int kMaxBufferlen = 4096;
 const int kMaxMemEDCLog = MAX_MEM_EDC_LOG;
 const int kMaxEDCLogLen = MAX_EDC_LOG_LEN;
 const int kMaxLogTypeLen = MAX_LOG_TYPE_LEN;
+const int kMaxHeaderLen= 16;
 const int kKeyScanPerSec = 15;
 const int kMaxYmdHMSLen = 20;
 const int kASCIIFn = 16;
@@ -400,7 +401,7 @@ int count2cost(PRINTERCOUNT_V2 *ptr_counter, int paper_size_a, int paper_size_b,
 
 // Network Utilities
 int connect_server(EDC_CTX*);
-size_t sock_write(int, const void*, size_t);
+size_t sock_write(int, const char*, size_t);
 size_t sock_read(int, char*, size_t);
 int set_nonblock(int, int);
 int dl_remote_list(EDC_CTX*, const char*, const char*);
@@ -1617,14 +1618,16 @@ int dl_remote_list(EDC_CTX *p_ctx, const char* sync_cmd, const char* file_name)
     return kSuccess;
 }
 
-size_t sock_write(int sock, const void *buf, size_t buf_len)
+size_t sock_write(int sock, const char *buf, size_t buf_len)
 {
     size_t    nleft;
     ssize_t    send_len;
     const char  *ptr;
+    char send_buf[kMaxHeaderLen + buf_len];
 
-    ptr = (char *)buf;
-    nleft = buf_len;
+    snprintf(send_buf, kMaxHeaderLen + buf_len, "%d|%s", buf_len, buf);
+    ptr = (char *)send_buf;
+    nleft = strlen(send_buf);
     while (nleft > 0)
     {
         if ((send_len = send(sock, ptr, nleft, 0)) < 0)
@@ -1785,7 +1788,6 @@ int idle_state(EDC_CTX *p_ctx)
         return kFailure;
     }
 
-    show_line(p_ctx, 1, STR_PLEASE_CARD);
     //show_line(p_ctx, 3, STR_EMPOLYEE_ID);
 
     // Initial user data
@@ -1798,6 +1800,44 @@ int idle_state(EDC_CTX *p_ctx)
         {
             return kFailure;
         }
+
+        //catch input and update screen
+        if (get_press_key(p_ctx, &in_key) != kSuccess)
+        {
+            //fprintf(stderr, "Can not get keypad.\n");
+            return kFailure;
+        }
+        else
+        {
+            if (in_key != 0 )
+            {
+                if (in_key == kASCIIFn)
+                {
+                    p_ctx->state = PASSWD;
+                    break;
+                }
+                else if (in_key == kASCIIClear 
+                    && in_pos > p_ctx->project_code)
+                {
+                    *--in_pos = '\0';
+                }
+                else if (in_key == kASCIICancel)
+                {
+                    in_pos = p_ctx->project_code;
+                    *in_pos = '\0';
+                }
+                else if (in_key >= kASCII_zero && in_key <= kASCII_nine
+                        && in_pos - p_ctx->project_code < kMaxProjectCodeLen)
+                {
+                    *in_pos++ = in_key;
+                    *in_pos = '\0';
+                }
+
+                //fprintf(stderr, "project code: %s\n", p_ctx->project_code);
+
+                show_line(p_ctx, 2, p_ctx->project_code);
+            }
+        }
         
         if (p_ctx->edc_num == 0)
         {
@@ -1805,44 +1845,7 @@ int idle_state(EDC_CTX *p_ctx)
         }
         else
         {
-            //catch input and update screen
-            if (get_press_key(p_ctx, &in_key) != kSuccess)
-            {
-                //fprintf(stderr, "Can not get keypad.\n");
-                return kFailure;
-            }
-            else
-            {
-                if (in_key != 0 )
-                {
-                    if (in_key == kASCIIFn)
-                    {
-                        p_ctx->state = PASSWD;
-                        break;
-                    }
-                    else if (in_key == kASCIIClear 
-                        && in_pos > p_ctx->project_code)
-                    {
-                        *--in_pos = '\0';
-                    }
-                    else if (in_key == kASCIICancel)
-                    {
-                        in_pos = p_ctx->project_code;
-                        *in_pos = '\0';
-                    }
-                    else if (in_key >= kASCII_zero && in_key <= kASCII_nine
-                            && in_pos - p_ctx->project_code < kMaxProjectCodeLen)
-                    {
-                        *in_pos++ = in_key;
-                        *in_pos = '\0';
-                    }
-
-                    //fprintf(stderr, "project code: %s\n", p_ctx->project_code);
-
-                    show_line(p_ctx, 2, p_ctx->project_code);
-                }
-            }
-
+            show_line(p_ctx, 1, STR_PLEASE_CARD);
             //catch carding
             serWriteCOM(&p_ctx->com_ctx, kSendComSignal, sizeof(kSendComSignal));
             usleep(kMicroPerSecond / 10);
