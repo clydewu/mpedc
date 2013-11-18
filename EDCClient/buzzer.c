@@ -2078,6 +2078,8 @@ int quota_state(EDC_CTX* p_ctx)
          *    verify it's running.
          */
 
+        /*
+        // For Debug
         fprintf(stderr, "%d || %d || %d ~= %d\n", 
                 ((ptr_counter.u8_work_status & 0x01) == 0), 
                 !usage_same_as(&(ptr_counter.photocopy), &continue_photocopy_usage), 
@@ -2087,14 +2089,14 @@ int quota_state(EDC_CTX* p_ctx)
                 || !usage_same_as(&(ptr_counter.print), &continue_print_usage) )
             );
 
-        //print_printertype(&(ptr_counter.photocopy));
-        //print_printertype(&(ptr_counter.print));
+        print_printertype(&(ptr_counter.photocopy));
+        print_printertype(&(ptr_counter.print));
         count2cost(&ptr_counter, curr_edc->paper_size_a, curr_edc->paper_size_b,
                 &gb, &gs, &cb, &cs);
         fprintf(stderr, "CLD: cur_quota: %d, gb:%d, gs:%d, cb:%d, cs:%d\n",
                 cur_quota, gb, gs, cb ,cs);
+        */
 
-        /*
         if ( (ptr_counter.u8_work_status & 0x01) == 0
                 || !usage_same_as(&(ptr_counter.photocopy), &continue_photocopy_usage)
                 || !usage_same_as(&(ptr_counter.print), &continue_print_usage) )
@@ -2162,25 +2164,15 @@ int quota_state(EDC_CTX* p_ctx)
                 break;
             }
         }
-        */
         
         usleep(kMicroPerSecond / 10);
-        /*
         snprintf(remain_sec, kMaxLineWord + 1, "%s: %d",
                 STR_REMAIN_SEC, (int)(utime_remain / kMicroPerSecond));
 
         left_right_str(remain_line, kMaxLineWord + 1, remain_sec, action_type);
         show_line(p_ctx, 3, remain_line);
-        */
     }
 
-    // Get use status
-    //if ( (ptr_counter.u8_work_status & 0x01) == 1 ) {}
-    // Get paper-track status
-    //if ( (ptr_counter.u8_work_status & 0x02) == 1) {}
-
-    //print_printertype(&(ptr_counter.photocopy));
-    
     init_printertype(&empty_usage);
     if (!usage_same_as(&ptr_counter.photocopy, &empty_usage) 
             && gen_cost_log(p_ctx, COPY, &ptr_counter.photocopy) != kSuccess)
