@@ -459,7 +459,7 @@ namespace EDCServer
             edc_log.emp_no = token[3];
             edc_log.log_time = token[4];
 
-            edc_log.content = token[5];
+            edc_log.content = (token.Length > 5)?token[5]:"";
             return edc_log;
         }
 

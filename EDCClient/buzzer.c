@@ -68,7 +68,7 @@ const int kMaxMemEDCLog = MAX_MEM_EDC_LOG;
 const int kMaxEDCLogLen = MAX_EDC_LOG_LEN;
 const int kMaxLogTypeLen = MAX_LOG_TYPE_LEN;
 const int kMaxHeaderLen= 16;
-const int kKeyScanPerSec = 15;
+const int kKeyScanPerSec = 20;
 const int kMaxYmdHMSLen = 20;
 const int kASCIIFn = 16;
 const int kASCIIUp = 17;
@@ -167,6 +167,8 @@ const char STR_SETUP_ERROR[] = "格式錯誤";
 const char STR_SETUP_PASSWD_ERROR[] = "密碼錯誤";
 const char STR_SETUP_INPUT_PASSWD[] = "輸入密碼";
 const char STR_DISABLE[] = "無法使用";
+const char STR_ONLINE[] = "On-Line";
+const char STR_OFFLINE[] = "Off-Line";
 
 enum RET{
         RET_SUCCESS = 0,           // 成功。
@@ -1838,7 +1840,7 @@ int idle_state(EDC_CTX *p_ctx)
                 show_line(p_ctx, 2, p_ctx->project_code);
             }
         }
-        
+
         if (p_ctx->edc_num == 0)
         {
             show_line(p_ctx, 1, STR_DISABLE);
@@ -1863,6 +1865,14 @@ int idle_state(EDC_CTX *p_ctx)
                 }
                 break;
             }
+        }
+        if (p_ctx->connected)
+        {
+            show_line(p_ctx, 3, STR_ONLINE);
+        }
+        else
+        {
+            show_line(p_ctx, 3, STR_OFFLINE);
         }
         usleep(kMicroPerSecond / 10);
     }
@@ -1917,8 +1927,7 @@ int invalid_card_state(EDC_CTX *p_ctx)
         return kFailure;
     }
 
-    buzzer((kMicroPerSecond / 10) * 1);
-    buzzer((kMicroPerSecond / 10) * 1);
+    buzzer(kMicroPerSecond / 10);
     usleep(kMicroPerSecond * 5);
 
     if (set_backlight(p_ctx, 0x00))
@@ -1936,12 +1945,15 @@ int quota_state(EDC_CTX* p_ctx)
     char remain_sec[kMaxLineWord + 1];
     char remain_line[kMaxLineWord + 1];
     char action_type[kMaxLineWord + 1];
+    char edc_log[kMaxEDCLogLen];
     EMPLOYEE_DATA *curr_emp;
     EDC_DATA *curr_edc;
     int utime_remain;
     PRINTERCOUNT_V2 ptr_counter;
     PRINTERTYPE print_usage;
     PRINTERTYPE photocopy_usage;
+    PRINTERTYPE continue_print_usage;
+    PRINTERTYPE continue_photocopy_usage;
     PRINTERTYPE empty_usage;
     int cur_quota;
     int enject_or_timeout = 0;
@@ -1955,7 +1967,6 @@ int quota_state(EDC_CTX* p_ctx)
 
     unsigned char in_key;
 
-    char edc_log[kMaxEDCLogLen];
 
     if (!p_ctx)
     {
@@ -1967,7 +1978,6 @@ int quota_state(EDC_CTX* p_ctx)
     {
         snprintf(p_ctx->project_code, kMaxProjectCodeLen + 1, "%s", "0000");
     }
-    fprintf(stderr, "Project code: %s.\n", p_ctx->project_code);
 
     if (set_led(kLEDGreen) != kSuccess)
     {
@@ -2017,6 +2027,9 @@ int quota_state(EDC_CTX* p_ctx)
     init_printertype(&photocopy_usage);
     init_printertype(&print_usage);
     init_printertype(&empty_usage);
+    init_printertype(&continue_print_usage);
+    init_printertype(&continue_photocopy_usage);
+    memset(action_type, 0, kMaxLineWord + 1);
 
     cur_quota = curr_emp->curr_quota;
     if (show_quota_info(p_ctx, cur_quota, gb, gs, cb, cs) != kSuccess)
@@ -2050,7 +2063,6 @@ int quota_state(EDC_CTX* p_ctx)
             return kFailure;
         }
 
-
         /*
          * How to detect scan?
          * Due to ptr_count_get() can only provide correct status of scan
@@ -2061,50 +2073,55 @@ int quota_state(EDC_CTX* p_ctx)
          *    We can judge this action is scan.
          * 2. If counter of scan is changed,
          *    Simpliy we know scan is occured.
+         * 3. BTW, old machine which interface is GPIO can't
+         *    return status correct. So we keep check counter to
+         *    verify it's running.
          */
-        if ((ptr_counter.u8_work_status & 0x01) == 1)
-        {
-            if (stage == 1
-                && usage_same_as(&(ptr_counter.photocopy), &empty_usage) == kFalse
-                && usage_same_as(&(ptr_counter.print), &empty_usage) == kFalse
-                && usage_same_as(&(ptr_counter.scan), &empty_usage) == kFalse)
-            {
-                scan_flag = kTrue;
-                stage = 0;
-            }
 
-            // Operation end, continue countdown
-            utime_remain -= kMicroPerSecond / 10;
-            if (utime_remain <= 0)
-            {
-                p_ctx->state = IDLE;
-                break;
-            }
-        }
-        else if ((ptr_counter.u8_work_status & 0x01) == 0)
+        fprintf(stderr, "%d || %d || %d ~= %d\n", 
+                ((ptr_counter.u8_work_status & 0x01) == 0), 
+                !usage_same_as(&(ptr_counter.photocopy), &continue_photocopy_usage), 
+                !usage_same_as(&(ptr_counter.print), &continue_print_usage),
+                ( (ptr_counter.u8_work_status & 0x01) == 0
+                || !usage_same_as(&(ptr_counter.photocopy), &continue_photocopy_usage)
+                || !usage_same_as(&(ptr_counter.print), &continue_print_usage) )
+            );
+
+        //print_printertype(&(ptr_counter.photocopy));
+        //print_printertype(&(ptr_counter.print));
+        count2cost(&ptr_counter, curr_edc->paper_size_a, curr_edc->paper_size_b,
+                &gb, &gs, &cb, &cs);
+        fprintf(stderr, "CLD: cur_quota: %d, gb:%d, gs:%d, cb:%d, cs:%d\n",
+                cur_quota, gb, gs, cb ,cs);
+
+        /*
+        if ( (ptr_counter.u8_work_status & 0x01) == 0
+                || !usage_same_as(&(ptr_counter.photocopy), &continue_photocopy_usage)
+                || !usage_same_as(&(ptr_counter.print), &continue_print_usage) )
         {
-            // Operating
+            // Action
+            stage = 1;
             utime_remain = curr_edc->limit_time * kMicroPerSecond;
+            usage_dup(&(ptr_counter.photocopy), &continue_photocopy_usage);
+            usage_dup(&(ptr_counter.print), &continue_print_usage);
 
             count2cost(&ptr_counter, curr_edc->paper_size_a, curr_edc->paper_size_b,
                     &gb, &gs, &cb, &cs);
-            if (usage_same_as(&(ptr_counter.scan), &empty_usage) == kTrue)
+            if (!usage_same_as(&(ptr_counter.scan), &empty_usage))
             {
                 scan_flag = kTrue;
                 snprintf(action_type, kMaxLineWord + 1, "S");
             }
 
-            if (!usage_same_as(&(ptr_counter.photocopy), &photocopy_usage) == kTrue)
+            if (!usage_same_as(&(ptr_counter.photocopy), &photocopy_usage))
             {
                 snprintf(action_type, kMaxLineWord + 1, "C");
             }
-            usage_dup(&(ptr_counter.photocopy), &photocopy_usage);
 
-            if (!usage_same_as(&(ptr_counter.print), &print_usage) == kTrue)
+            if (!usage_same_as(&(ptr_counter.print), &print_usage))
             {
                 snprintf(action_type, kMaxLineWord + 1, "P");
             }
-            usage_dup(&(ptr_counter.print), &print_usage);
 
             cur_quota = curr_emp->curr_quota
                         - gb * curr_edc->mono_a3
@@ -2119,13 +2136,42 @@ int quota_state(EDC_CTX* p_ctx)
                 return kFailure;
             }
         }
+        else
+        {
+            if (stage == 1)
+            {
+                fprintf(stderr, "Action finish.\n");
+                if (usage_same_as(&(ptr_counter.photocopy), &empty_usage)
+                    && usage_same_as(&(ptr_counter.print), &photocopy_usage)
+                    && usage_same_as(&(ptr_counter.scan), &print_usage))
+                {
+                    fprintf(stderr, "All counter are not modified.\n");
+                    scan_flag = kTrue;
+                }
+
+                usage_dup(&(ptr_counter.photocopy), &photocopy_usage);
+                usage_dup(&(ptr_counter.print), &print_usage);
+                stage = 0;
+            }
+
+            // Operation end, continue countdown
+            utime_remain -= kMicroPerSecond / 10;
+            if (utime_remain <= 0)
+            {
+                p_ctx->state = IDLE;
+                break;
+            }
+        }
+        */
         
         usleep(kMicroPerSecond / 10);
+        /*
         snprintf(remain_sec, kMaxLineWord + 1, "%s: %d",
                 STR_REMAIN_SEC, (int)(utime_remain / kMicroPerSecond));
 
         left_right_str(remain_line, kMaxLineWord + 1, remain_sec, action_type);
         show_line(p_ctx, 3, remain_line);
+        */
     }
 
     // Get use status
@@ -2159,6 +2205,10 @@ int quota_state(EDC_CTX* p_ctx)
     }
 
     //release print
+    buzzer((kMicroPerSecond / 10) * 1);
+    usleep(kMicroPerSecond / 10);
+    buzzer((kMicroPerSecond / 10) * 1);
+    usleep(kMicroPerSecond / 2);
     if (ptr_count_stop(p_ctx->lkp_ctx) != kSuccess)
     {
         fprintf(stderr, "Stop print counter failure\n");
@@ -2226,9 +2276,9 @@ int print_printertype(PRINTERTYPE *usage)
 {
     int i;
 
-    for(i = 0; i < kMaxPrtPage; i++)
+    for (i = 0; i < kMaxPrtPage; i++)
     {
-        fprintf(stderr, "%d %d %d %d %d %d %d %d\n",
+        fprintf(stderr, "%d %d %d %d %d %d %d %d\n\n",
                 usage->u16_gray_scale_a[i],
                 usage->u16_gray_scale_b[i],
                 usage->u16_color_a[i],
@@ -2245,7 +2295,7 @@ int print_printertype(PRINTERTYPE *usage)
 int init_printertype(PRINTERTYPE *usage)
 {
     int i;
-    for(i = 0; i < kMaxPrtPage; i++)
+    for (i = 0; i < kMaxPrtPage; i++)
     {
         usage->u16_gray_scale_a[i] = 0;
         usage->u16_gray_scale_b[i] = 0;
@@ -2257,7 +2307,7 @@ int init_printertype(PRINTERTYPE *usage)
         usage->u16_double_color_b[i] = 0;
     }
 
-    return 0;
+    return kSuccess;
 }
 
 int count2cost(PRINTERCOUNT_V2 *ptr_counter, int paper_size_a, int paper_size_b, 
@@ -2287,60 +2337,54 @@ int count2cost(PRINTERCOUNT_V2 *ptr_counter, int paper_size_a, int paper_size_b,
         if (i < paper_size_a)
         {
             //fprintf(stderr, "--- print a big ---\n");
-            *gray_big += print->u16_gray_scale_a[i] + print->u16_double_gray_scale_a[i] * 2;
-            *color_big += print->u16_color_a[i] + print->u16_double_color_a[i] * 2;
+            *gray_big += print->u16_gray_scale_a[i] +
+                print->u16_double_gray_scale_a[i] * 2 +
+                copy->u16_gray_scale_a[i] +
+                copy->u16_double_gray_scale_a[i] * 2;
+            *color_big += print->u16_color_a[i] +
+                print->u16_double_color_a[i] * 2 +
+                copy->u16_color_a[i] +
+                copy->u16_double_color_a[i] * 2;
         }
         else
         {
             //fprintf(stderr, "--- print a small ---\n");
-            *gray_small += print->u16_gray_scale_a[i] + print->u16_double_gray_scale_a[i] * 2;
-            *color_small += print->u16_color_a[i] + print->u16_double_color_a[i] * 2;
+            *gray_small += print->u16_gray_scale_a[i] +
+                print->u16_double_gray_scale_a[i] * 2 +
+                copy->u16_gray_scale_a[i] +
+                copy->u16_double_gray_scale_a[i] * 2;
+            *color_small += print->u16_color_a[i] +
+                print->u16_double_color_a[i] * 2 +
+                copy->u16_color_a[i] +
+                copy->u16_double_color_a[i] * 2;
         }
 
         if (i < paper_size_b)
         {
             //fprintf(stderr, "--- print b small ---\n");
-            *gray_big += print->u16_gray_scale_b[i] + print->u16_double_gray_scale_b[i] * 2;
-            *color_big += print->u16_color_b[i] + print->u16_double_color_b[i] * 2;
+            *gray_big += print->u16_gray_scale_b[i] +
+                print->u16_double_gray_scale_b[i] * 2 +
+                copy->u16_gray_scale_b[i] +
+                copy->u16_double_gray_scale_b[i] * 2;
+            *color_big += print->u16_color_b[i] +
+                print->u16_double_color_b[i] * 2 +
+                copy->u16_color_b[i] +
+                copy->u16_double_color_b[i] * 2;
         }
         else
         {
             //fprintf(stderr, "--- print b big ---\n");
-            *gray_small += print->u16_gray_scale_b[i] + print->u16_double_gray_scale_b[i] * 2;
-            *color_small += print->u16_color_b[i] + print->u16_double_color_b[i] * 2;
+            *gray_small += print->u16_gray_scale_b[i] +
+                print->u16_double_gray_scale_b[i] * 2 +
+                copy->u16_gray_scale_b[i] +
+                copy->u16_double_gray_scale_b[i] * 2;
+            *color_small += print->u16_color_b[i] +
+                print->u16_double_color_b[i] * 2 +
+                copy->u16_color_b[i] +
+                copy->u16_double_color_b[i] * 2;
         }
     }
 
-    // Count copy cost
-    for (i=0; i < kMaxPrtPage; i++)
-    {
-        //fprintf(stderr, "- %d - \n", i);
-        if (i < paper_size_a)
-        {
-            //fprintf(stderr, "--- copy a big ---\n");
-            *gray_big += copy->u16_gray_scale_a[i] + copy->u16_double_gray_scale_a[i] * 2;
-            *color_big += copy->u16_color_a[i] + copy->u16_double_color_a[i] * 2;
-        }
-        else
-        {
-            //fprintf(stderr, "--- copy a small ---\n");
-            *gray_small += copy->u16_gray_scale_a[i] + copy->u16_double_gray_scale_a[i] * 2;
-            *color_small += copy->u16_color_a[i] + copy->u16_double_color_a[i] * 2;
-        }
-
-        if (i < paper_size_b)
-        {
-            //fprintf(stderr, "--- copy b big ---\n");
-            *gray_big += copy->u16_gray_scale_b[i] + copy->u16_double_gray_scale_b[i] * 2;
-            *color_big += copy->u16_color_b[i] + copy->u16_double_color_b[i] * 2;
-        }
-        else
-        {
-            //fprintf(stderr, "--- copy b small ---\n");
-            *gray_small += copy->u16_gray_scale_b[i] + copy->u16_double_gray_scale_b[i] * 2;
-            *color_small += copy->u16_color_b[i] + copy->u16_double_color_b[i] * 2;
-        }
-    }
 
     return kSuccess;
 }
@@ -3279,7 +3323,8 @@ int show_line(EDC_CTX *p_ctx, int line, const char *string)
             return kFailure;
         }
 
-        ret = lcd_clean_buffer(p_ctx->lkp_ctx, 0, kFontHeight * line, kScreenWidth, kFontHeight);
+        ret = lcd_clean_buffer(p_ctx->lkp_ctx, 0,
+                kFontHeight * line, kScreenWidth, kFontHeight);
         if (ret != 0)
         {
             fprintf(stderr, "Clean buffer error, line=%d, ret=%d\n", line, ret);
