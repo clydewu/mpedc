@@ -275,6 +275,8 @@ int main()
     EDC_CTX ctx;
     EDC_CTX* p_ctx = &ctx;
     unsigned char in_key;
+    int ret;
+    int line = 0;
 
     fprintf(stderr, "Create Context .\n");
     p_ctx->lkp_ctx = lkp_create();
@@ -293,24 +295,55 @@ int main()
     }
     sleep(1);
 
+    if(lcd_clean_scr(ctx.lkp_ctx) != kSuccess)
+    {
+        fprintf(stderr, "Can not clean screen.\n");
+        return kFailure;
+    }
+
+    if(lcd_clean(ctx.lkp_ctx) != kSuccess)
+    {
+        fprintf(stderr, "Can not clean screen buffer.\n");
+        return kFailure;
+    }
 
 
     while (kTrue)
     {
-        if (kpd_get_keypad(p_ctx->lkp_ctx, &in_key) >= 0)
+        ret = lcd_clean_buffer(p_ctx->lkp_ctx, 0,
+                0, kScreenWidth, kFontHeight);
+        if (ret != 0)
         {
-            if (in_key > 0 )
-            {
-                fprintf(stderr, "input key: %d\n", in_key);
-            }
+            fprintf(stderr, "lcd_clean_buffer() failure, ret: %d\n", ret);
+        }
+
+        ret = lcd_draw_text_16f(p_ctx->lkp_ctx, 0, kFontHeight * line, "test", 0);
+        if (ret != 0)
+        {
+            fprintf(stderr, "Draw buffer error, line=%d, ret=%d\n", line, ret);
+            return kFailure;
+        }
+
+        ret = lcd_print_out(p_ctx->lkp_ctx);
+        if (ret != 0)
+        {
+            fprintf(stderr, "lcd_print_out() failure, ret=%d\n", ret);
+            return kFailure;
+        }
+
+        ret = kpd_get_keypad(p_ctx->lkp_ctx, &in_key);
+        if ( ret >= 0)
+        {
+            fprintf(stderr, "input key: %d, ret=%d\n", in_key, ret);
         }
         else
         {
-            fprintf(stderr, "Get keypad failure.\n");
+            fprintf(stderr, "Get keypad failure, ret=%d.\n", ret);
         }
+        fprintf(stderr, "Sleep ....\n");
+        usleep(200000);
 
-        fprintf(stderr, "Sleep 1s....\n");
-        usleep(1000000);
+        line = (line ==3)?0:line+1;
     }
 
     return kTrue;
