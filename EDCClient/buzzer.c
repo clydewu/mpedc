@@ -1137,15 +1137,15 @@ int init(EDC_CTX *p_ctx, const char* com_ini_file)
         return kFailure;
     }
 
-    p_ctx->edc_log_num = 0;
-    memset(p_ctx->edc_tmp_log, 0, kMaxMemEDCLog * kMaxEDCLogLen);
-
     if (pthread_create(&(p_ctx->sync_log_thr), NULL,
                 (void*)sync_log_thr_func, (void*)p_ctx) != kSuccess)
     {
         fprintf(stderr, "Create sync thread failure.\n");
         return kFailure;
     }
+
+    p_ctx->edc_log_num = 0;
+    memset(p_ctx->edc_tmp_log, 0, kMaxMemEDCLog * kMaxEDCLogLen);
 
     return kSuccess;
 }
@@ -2089,8 +2089,8 @@ int quota_state(EDC_CTX* p_ctx)
                 || !usage_same_as(&(ptr_counter.print), &continue_print_usage) )
             );
 
-        print_printertype(&(ptr_counter.photocopy));
         print_printertype(&(ptr_counter.print));
+        print_printertype(&(ptr_counter.photocopy));
         count2cost(&ptr_counter, curr_edc->paper_size_a, curr_edc->paper_size_b,
                 &gb, &gs, &cb, &cs);
         fprintf(stderr, "CLD: cur_quota: %d, gb:%d, gs:%d, cb:%d, cs:%d\n",
@@ -2164,7 +2164,7 @@ int quota_state(EDC_CTX* p_ctx)
                 break;
             }
         }
-        
+
         usleep(kMicroPerSecond / 10);
         snprintf(remain_sec, kMaxLineWord + 1, "%s: %d",
                 STR_REMAIN_SEC, (int)(utime_remain / kMicroPerSecond));
@@ -2270,7 +2270,7 @@ int print_printertype(PRINTERTYPE *usage)
 
     for (i = 0; i < kMaxPrtPage; i++)
     {
-        fprintf(stderr, "%d %d %d %d %d %d %d %d\n\n",
+        fprintf(stderr, "%d %d %d %d %d %d %d %d\n",
                 usage->u16_gray_scale_a[i],
                 usage->u16_gray_scale_b[i],
                 usage->u16_color_a[i],
@@ -2280,6 +2280,8 @@ int print_printertype(PRINTERTYPE *usage)
                 usage->u16_double_color_a[i],
                 usage->u16_double_color_b[i]);
     }
+
+    fprintf(stderr, "\n");
 
     return kSuccess;
 }
@@ -3292,7 +3294,7 @@ int left_right_str(char *buf, const int buf_size, const char *left, const char *
 
 int show_line(EDC_CTX *p_ctx, int line, const char *string)
 {
-    int ret;
+    int ret = 0;
     int failure_count = 0;
 
     if (line > kMaxScreenLine - 1)
