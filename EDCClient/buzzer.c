@@ -170,6 +170,13 @@ const char STR_DISABLE[] = "無法使用";
 const char STR_ONLINE[] = "On-Line";
 const char STR_OFFLINE[] = "Off-Line";
 
+
+typedef struct _log
+{
+    int log_level;
+    pthread_mutex_t log_mutex;
+} LOG, *PLOG;
+
 enum RET{
         RET_SUCCESS = 0,           // 成功。
         RET_ERR_UNKNOW  = -0xFF,   // 未知的錯誤
