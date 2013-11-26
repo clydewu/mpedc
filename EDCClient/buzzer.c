@@ -68,7 +68,6 @@ const int kMaxMemEDCLog = MAX_MEM_EDC_LOG;
 const int kMaxEDCLogLen = MAX_EDC_LOG_LEN;
 const int kMaxLogTypeLen = MAX_LOG_TYPE_LEN;
 const int kMaxHeaderLen= 16;
-const int kKeyScanPerSec = 20;
 const int kMaxYmdHMSLen = 20;
 const int kASCIIFn = 16;
 const int kASCIIUp = 17;
@@ -83,6 +82,16 @@ const int kASCIILastVisiable = 127;
 const int kASCII_zero = 48;
 const int kASCII_nine = 57;
 const int kMaxFailLimit = 10;
+
+const float kWaitSecScanKey = 0.2;
+const float kWaitSecReadComPort = 0.1;
+const float kWaitSecDoubleBuzzer = 0.2;
+const float kWaitSecStopPtrCount = 0.2;
+const float kBuzzerShort = 0.1;
+const float kBuzzerMedium = 0.3;
+const float kBuzzerLong = 0.5;
+
+const int kIdleSecInvalidCard = 5;
 
 const int kMaxPrtPage = 11;
 
@@ -161,6 +170,7 @@ const char STR_SETUP_SERVER_IP[] = "設定SERVER IP";
 const char STR_SETUP_SERVER_PORT[] = "設定SERVER PORT";
 const char STR_SETUP_FN_PASSWD[] = "設定管理密碼";
 const char STR_SETUP_CONFIRM[] = "確定/取消";
+const char STR_SETUP_WAIT[] = "寫入中...";
 const char STR_SETUP_CURRENT[] = "目前:";
 const char STR_SETUP_NEWSET[] = "設定:";
 const char STR_SETUP_ERROR[] = "格式錯誤";
@@ -371,7 +381,8 @@ int passwd_state(EDC_CTX*);
 // EDC Utilities
 int init(EDC_CTX*, const char*);
 void quit(EDC_CTX*);
-int show_datetime(EDC_CTX*);
+int get_current_time_r(struct tm* p_time_info);
+int show_datetime(EDC_CTX* p_ctx, struct tm* p_time_info);
 int show_line(EDC_CTX*, int, const char*);
 int left_right_str(char*, const int, const char*, const char*);
 int set_led(unsigned int conf);
@@ -403,6 +414,7 @@ int gen_cost_log(EDC_CTX*, const EDC_LOG_TYPE, PRINTERTYPE*);
 // Printer Utilities
 int usage_dup(PRINTERTYPE* , PRINTERTYPE*);
 int usage_same_as(PRINTERTYPE *p1, PRINTERTYPE *p2);
+int usage_empty(PRINTERTYPE *p);
 int print_printertype(PRINTERTYPE *);
 int init_printertype(PRINTERTYPE *usage);
 int count2cost(PRINTERCOUNT_V2 *ptr_counter, int paper_size_a, int paper_size_b, 
@@ -584,97 +596,34 @@ void sync_list_thr_func(void* ctx)
     }
 }
 
-void keypad_thr_func(void *ctx)
-{
-    int ret;
-    EDC_CTX* p_ctx;
-    unsigned char in_key;
-    int backlight_usec;
-
-    if (!p_ctx)
-    {
-        fprintf(stderr, "Parameter Fail!\n");
-        return ;
-    }
-
-    p_ctx = (EDC_CTX*)ctx;
-    p_ctx->key_ctx.cur_key = 0;
-    backlight_usec = 0;
-
-    while (kTrue)
-    {
-        //Use mutex to avoid API failure
-        if (pthread_mutex_lock(&p_ctx->lkp_ctx_mutex))
-        {
-            fprintf(stderr, "Lock lkp_ctx mutex failure!\n");
-            return;
-        }
-
-        ret = kpd_get_keypad(p_ctx->lkp_ctx, &in_key);
-
-        if (pthread_mutex_unlock(&p_ctx->lkp_ctx_mutex))
-        {
-            fprintf(stderr, "Unlock lkp_ctx mutex failure!\n");
-            return;
-        }
-
-        if (ret >= 0)
-        {
-            if (in_key > 0 )
-            {
-                fprintf(stderr, "input key: %d\n", in_key);
-                p_ctx->key_ctx.cur_key = in_key;
-
-                if (set_backlight(p_ctx, 0xff))
-                {
-                    fprintf(stderr, "Can not open backlight.\n");
-                    return;
-                }
-                backlight_usec = 0;
-                p_ctx->backlight_flag = kTrue;
-            }
-            else if ((char)in_key < 0)
-            {
-                fprintf(stderr, "Invalid input key: %d\n", in_key);
-            }
-        }
-        else
-        {
-            fprintf(stderr, "Get keypad failure.\n");
-        }
-
-        // If flag enable, increase count and check timeout
-        if (p_ctx->backlight_flag)
-        {
-            if (backlight_usec > kMicroPerSecond * kLCDBackLightTimeout)
-            {
-                if (set_backlight(p_ctx, 0x00))
-                {
-                    fprintf(stderr, "Can not close backlight when timeout.\n");
-                    return;
-                }
-                backlight_usec = 0;
-                p_ctx->backlight_flag = kFalse;
-            }
-
-            backlight_usec += kMicroPerSecond / kKeyScanPerSec;
-        }
-
-        usleep(kMicroPerSecond / kKeyScanPerSec);
-    }
-}
-
 int get_press_key(EDC_CTX* p_ctx, unsigned char* key)
 {
+    int ret;
+
     if (!p_ctx || !key)
     {
         fprintf(stderr, "Parameter Fail!\n");
         return kFailure;
     }
 
-    *key = p_ctx->key_ctx.cur_key;
-    p_ctx->key_ctx.cur_key = 0;
-    return kSuccess;
+    // By experience, Sleep a while to keep it success
+    usleep(kMicroPerSecond * kWaitSecScanKey);
+
+    if (pthread_mutex_lock(&p_ctx->lkp_ctx_mutex))
+    {
+        fprintf(stderr, "Lock lkp_ctx mutex failure!\n");
+        return kFailure;
+    }
+
+    ret = kpd_get_keypad(p_ctx->lkp_ctx, key);
+
+    if (pthread_mutex_unlock(&p_ctx->lkp_ctx_mutex))
+    {
+        fprintf(stderr, "Unlock lkp_ctx mutex failure!\n");
+        return kFailure;
+    }
+
+    return ret;
 }
 
 void sync_log_thr_func(void *ctx)
@@ -1110,6 +1059,7 @@ int init(EDC_CTX *p_ctx, const char* com_ini_file)
         return kFailure;
     }
 
+    /*
     if (connect_server(p_ctx) != kSuccess)
     {
         fprintf(stderr, "Connect to server failure,"
@@ -1123,6 +1073,7 @@ int init(EDC_CTX *p_ctx, const char* com_ini_file)
             return kFailure;
         }
     }
+    */
 
     if (load_local_lists(p_ctx) != kSuccess)
     {
@@ -1130,13 +1081,16 @@ int init(EDC_CTX *p_ctx, const char* com_ini_file)
         return kFailure;
     }
 
+    /*
     if (pthread_create(&(p_ctx->keypad_thr), NULL,
                 (void*)keypad_thr_func, (void*)p_ctx) != kSuccess)
     {
         fprintf(stderr, "Create keypad thread failure.\n");
         return kFailure;
     }
+    */
 
+    /*
     if (pthread_create(&(p_ctx->sync_list_thr), NULL,
                 (void*)sync_list_thr_func, (void*)p_ctx) != kSuccess)
     {
@@ -1150,6 +1104,7 @@ int init(EDC_CTX *p_ctx, const char* com_ini_file)
         fprintf(stderr, "Create sync thread failure.\n");
         return kFailure;
     }
+    */
 
     p_ctx->edc_log_num = 0;
     memset(p_ctx->edc_tmp_log, 0, kMaxMemEDCLog * kMaxEDCLogLen);
@@ -1772,6 +1727,15 @@ int idle_state(EDC_CTX *p_ctx)
     //int remain_sec;
     char *in_pos = p_ctx->project_code;
     unsigned char in_key;
+    int ret;
+
+    // Duplicate edc_num in local to detect modification.
+    int cur_edc_num;
+    int cur_connected;
+    int cur_min;
+    int backlight_epoch;
+    int backlight_flag;
+    struct tm time_info;
 
     if (!p_ctx)
     {
@@ -1797,23 +1761,33 @@ int idle_state(EDC_CTX *p_ctx)
         return kFailure;
     }
 
-    //show_line(p_ctx, 3, STR_EMPOLYEE_ID);
+    if (set_backlight(p_ctx, 0xff))
+    {
+        fprintf(stderr, "Can not open backlight.\n");
+        return kFailure;
+    }
 
     // Initial user data
     memset(&p_ctx->curr_card_sn, 0, kMaxCardSNLen);
     memset(&p_ctx->project_code, 0, kMaxProjectCodeLen + 1);
     p_ctx->curr_emp_idx = 0;
-    while (kTrue)
-    {   
-        if (show_datetime(p_ctx) != kSuccess)
-        {
-            return kFailure;
-        }
 
-        //catch input and update screen
-        if (get_press_key(p_ctx, &in_key) != kSuccess)
+    cur_edc_num = p_ctx->edc_num;
+    cur_connected = p_ctx->connected;
+    get_current_time_r(&time_info);
+    cur_min = time_info.tm_min;
+    backlight_epoch = time(NULL);
+
+    show_datetime(p_ctx, &time_info);
+    show_line(p_ctx, 1, STR_PLEASE_CARD);
+    show_line(p_ctx, 3, cur_connected?STR_ONLINE:STR_OFFLINE);
+
+    while (kTrue)
+    {
+        ret = get_press_key(p_ctx, &in_key);
+        if (ret < 0)
         {
-            //fprintf(stderr, "Can not get keypad.\n");
+            fprintf(stderr, "Can not get keypad in idle state, ret:%d\n", ret);
             return kFailure;
         }
         else
@@ -1842,29 +1816,51 @@ int idle_state(EDC_CTX *p_ctx)
                     *in_pos = '\0';
                 }
 
+                if (set_backlight(p_ctx, 0xff))
+                {
+                    fprintf(stderr, "Can not open backlight.\n");
+                    return kFailure;
+                }
+                backlight_epoch = 0;
+                backlight_flag = kTrue;
                 //fprintf(stderr, "project code: %s\n", p_ctx->project_code);
 
                 show_line(p_ctx, 2, p_ctx->project_code);
             }
         }
 
-        if (p_ctx->edc_num == 0)
+        if (backlight_flag == kTrue)
         {
-            show_line(p_ctx, 1, STR_DISABLE);
+            if (time(NULL) - backlight_epoch > kLCDBackLightTimeout)
+            {
+                if (set_backlight(p_ctx, 0x00))
+                {
+                    fprintf(stderr, "Can not close backlight when timeout.\n");
+                    return kFailure;
+                }
+                p_ctx->backlight_flag = kFalse;
+            }
         }
-        else
+
+        if (cur_edc_num != p_ctx->edc_num)
         {
-            show_line(p_ctx, 1, STR_PLEASE_CARD);
-            //catch carding
+            // edc_num is modified, re-draw line 1
+            cur_edc_num = p_ctx->edc_num;
+            show_line(p_ctx, 1, (cur_edc_num==0)?STR_DISABLE:STR_PLEASE_CARD);
+        }
+
+        if (p_ctx->edc_num > 0)
+        {
+            // This EDC is registed in server, OK, detect card
             serWriteCOM(&p_ctx->com_ctx, kSendComSignal, sizeof(kSendComSignal));
-            usleep(kMicroPerSecond / 10);
+            usleep(kMicroPerSecond * kWaitSecReadComPort);
             if (read_rfid(p_ctx) == kSuccess)
             {
                 fprintf(stderr, "Card: %s\n", p_ctx->curr_card_sn);
                 if (is_valid_card(p_ctx))
                 {
                     p_ctx->state = QUOTA;
-                    buzzer((kMicroPerSecond / 10) * 1);
+                    buzzer(kMicroPerSecond * kBuzzerShort);
                 }
                 else
                 {
@@ -1873,15 +1869,22 @@ int idle_state(EDC_CTX *p_ctx)
                 break;
             }
         }
-        if (p_ctx->connected)
+
+        if (cur_connected != p_ctx->connected)
         {
-            show_line(p_ctx, 3, STR_ONLINE);
+            cur_connected = p_ctx->connected;
+            show_line(p_ctx, 3, cur_connected?STR_ONLINE:STR_OFFLINE);
         }
-        else
+
+        get_current_time_r(&time_info);
+        if (cur_min != time_info.tm_min)
         {
-            show_line(p_ctx, 3, STR_OFFLINE);
+            cur_min = time_info.tm_min;
+            if (show_datetime(p_ctx, &time_info) != kSuccess)
+            {
+                return kFailure;
+            }
         }
-        usleep(kMicroPerSecond / 10);
     }
 
     return kSuccess;
@@ -1890,6 +1893,7 @@ int idle_state(EDC_CTX *p_ctx)
 int invalid_card_state(EDC_CTX *p_ctx)
 {
     char edc_log[kMaxEDCLogLen];
+    struct tm time_info;
 
     if (!p_ctx)
     {
@@ -1922,7 +1926,8 @@ int invalid_card_state(EDC_CTX *p_ctx)
         return kFailure;
     }
 
-    show_datetime(p_ctx);
+    get_current_time_r(&time_info);
+    show_datetime(p_ctx, &time_info);
     show_line(p_ctx, 1, STR_INVALID_CARD);
     show_line(p_ctx, 2, STR_CONTACT_STAFF);
 
@@ -1934,38 +1939,35 @@ int invalid_card_state(EDC_CTX *p_ctx)
         return kFailure;
     }
 
-    buzzer(kMicroPerSecond / 10);
-    usleep(kMicroPerSecond * 5);
-
-    if (set_backlight(p_ctx, 0x00))
-    {
-        fprintf(stderr, "Can not set backlight.\n");
-        return kFailure;
-    }
-
+    buzzer(kMicroPerSecond * kBuzzerShort);
+    usleep(kMicroPerSecond * kIdleSecInvalidCard);
     p_ctx->state = IDLE;
     return kSuccess;
 }
 
 int quota_state(EDC_CTX* p_ctx)
 {
-    char remain_sec[kMaxLineWord + 1];
+    int ret;
+    char remain_sec_str[kMaxLineWord + 1];
     char remain_line[kMaxLineWord + 1];
     char action_type[kMaxLineWord + 1];
     char edc_log[kMaxEDCLogLen];
     EMPLOYEE_DATA *curr_emp;
     EDC_DATA *curr_edc;
-    int utime_remain;
+    int start_epoch;
+    int curr_epoch;
     PRINTERCOUNT_V2 ptr_counter;
     PRINTERTYPE print_usage;
     PRINTERTYPE photocopy_usage;
     PRINTERTYPE continue_print_usage;
     PRINTERTYPE continue_photocopy_usage;
     PRINTERTYPE empty_usage;
-    int cur_quota;
+    int curr_quota;
     int enject_or_timeout = 0;
     int stage = 0; //0: stop, 1: start
     int scan_flag = kFalse;
+    int status_action_flag;
+    int usage_modified_flag;
 
     int gb = 0;
     int gs = 0;
@@ -1992,6 +1994,13 @@ int quota_state(EDC_CTX* p_ctx)
         return kFailure;
     }
 
+    // Enable all backlight
+    if (set_backlight(p_ctx, 0xff))
+    {
+        fprintf(stderr, "Can not open backlight in quota state.\n");
+        return kFailure;
+    }
+
     snprintf(edc_log, kMaxEDCLogLen, PTN_CARD_VALID, p_ctx->curr_card_sn);
     if (append_edc_log(p_ctx, CARD, edc_log) != kSuccess)
     {
@@ -2007,25 +2016,17 @@ int quota_state(EDC_CTX* p_ctx)
         }
     }
 
-    // is_valid_card() will prepare curr_emp_idx
-    curr_emp = &(p_ctx->emp_list[p_ctx->curr_emp_idx]);
-    curr_edc = &(p_ctx->edc_list[0]);
-    utime_remain = curr_edc->limit_time * kMicroPerSecond;
-
-    // Enable all backlight
-    if (set_backlight(p_ctx, 0xff))
-    {
-        fprintf(stderr, "Can not open backlight when touch card.\n");
-        return kFailure;
-    }
-    p_ctx->backlight_flag = kTrue;
-
     // Init print, start to statistic
     if (ptr_count_init(p_ctx->lkp_ctx) != kSuccess)
     {
         fprintf(stderr, "Initial print counter failure\n");
         return kFailure;
     }
+
+    // is_valid_card() will prepare curr_emp_idx
+    curr_emp = &(p_ctx->emp_list[p_ctx->curr_emp_idx]);
+    curr_edc = &(p_ctx->edc_list[0]);
+    curr_quota = curr_emp->curr_quota;
 
     init_printertype(&(ptr_counter.photocopy));
     init_printertype(&(ptr_counter.print));
@@ -2038,19 +2039,20 @@ int quota_state(EDC_CTX* p_ctx)
     init_printertype(&continue_photocopy_usage);
     memset(action_type, 0, kMaxLineWord + 1);
 
-    cur_quota = curr_emp->curr_quota;
-    if (show_quota_info(p_ctx, cur_quota, gb, gs, cb, cs) != kSuccess)
+    if (show_quota_info(p_ctx, curr_quota, gb, gs, cb, cs) != kSuccess)
     {
         fprintf(stderr, "Show quota screen failure\n");
         return kFailure;
     }
 
+    start_epoch = time(NULL);
+    curr_epoch = time(NULL);
     while (kTrue)
     {
-        //catch input and update screen
-        if (get_press_key(p_ctx, &in_key) < 0)
+        ret = get_press_key(p_ctx, &in_key);
+        if (ret < 0)
         {
-            //fprintf(stderr, "Can not get keypad.\n");
+            fprintf(stderr, "Can not get keypad in quota state, ret:%d.\n", ret);
             return kFailure;
         }
         else
@@ -2063,7 +2065,6 @@ int quota_state(EDC_CTX* p_ctx)
             }
         }
 
-        //Get statistic info from printer
         if (ptr_count_get(p_ctx->lkp_ctx, &ptr_counter) != kSuccess)
         {
             fprintf(stderr, "Get print counter failure\n");
@@ -2104,16 +2105,16 @@ int quota_state(EDC_CTX* p_ctx)
                 cur_quota, gb, gs, cb ,cs);
         */
 
-        if ( (ptr_counter.u8_work_status & 0x01) == 0
-                || !usage_same_as(&(ptr_counter.photocopy), &continue_photocopy_usage)
-                || !usage_same_as(&(ptr_counter.print), &continue_print_usage) )
+        status_action_flag = ((ptr_counter.u8_work_status & 0x01) == 0)?kTrue:kFalse;
+        usage_modified_flag = (!usage_same_as(&(ptr_counter.photocopy), &continue_photocopy_usage)
+                          || !usage_same_as(&(ptr_counter.print), &continue_print_usage));
+        if (status_action_flag || usage_modified_flag)
         {
             // Action
             stage = 1;
-            utime_remain = curr_edc->limit_time * kMicroPerSecond;
+            start_epoch = time(NULL);
             usage_dup(&(ptr_counter.photocopy), &continue_photocopy_usage);
             usage_dup(&(ptr_counter.print), &continue_print_usage);
-
             count2cost(&ptr_counter, curr_edc->paper_size_a, curr_edc->paper_size_b,
                     &gb, &gs, &cb, &cs);
             if (!usage_same_as(&(ptr_counter.scan), &empty_usage))
@@ -2132,17 +2133,20 @@ int quota_state(EDC_CTX* p_ctx)
                 snprintf(action_type, kMaxLineWord + 1, "P");
             }
 
-            cur_quota = curr_emp->curr_quota
+            curr_quota = curr_emp->curr_quota
                         - gb * curr_edc->mono_a3
                         - gs * curr_edc->mono_a4
                         - cb * curr_edc->color_a3
                         - cs * curr_edc->color_a4;
             fprintf(stderr, "CLD: cur_quota: %d, gb:%d, gs:%d, cb:%d, cs:%d\n",
-                    cur_quota, gb, gs, cb ,cs);
-            if (show_quota_info(p_ctx, cur_quota, gb, gs, cb, cs) != kSuccess)
+                    curr_quota, gb, gs, cb ,cs);
+            if (usage_modified_flag == kTrue)
             {
-                fprintf(stderr, "Show quota screen failure\n");
-                return kFailure;
+                if (show_quota_info(p_ctx, curr_quota, gb, gs, cb, cs) != kSuccess)
+                {
+                    fprintf(stderr, "Show quota screen failure\n");
+                    return kFailure;
+                }
             }
         }
         else
@@ -2163,33 +2167,32 @@ int quota_state(EDC_CTX* p_ctx)
                 stage = 0;
             }
 
-            // Operation end, continue countdown
-            utime_remain -= kMicroPerSecond / 10;
-            if (utime_remain <= 0)
+
+            if (time(NULL)- start_epoch >= curr_edc->limit_time)
             {
                 p_ctx->state = IDLE;
                 break;
             }
         }
 
-        usleep(kMicroPerSecond / 10);
-        snprintf(remain_sec, kMaxLineWord + 1, "%s: %d",
-                STR_REMAIN_SEC, (int)(utime_remain / kMicroPerSecond));
-
-        left_right_str(remain_line, kMaxLineWord + 1, remain_sec, action_type);
-        show_line(p_ctx, 3, remain_line);
+        if (curr_epoch != time(NULL))
+        {
+            curr_epoch = time(NULL);
+            snprintf(remain_sec_str, kMaxLineWord + 1, "%s: %d",
+                    STR_REMAIN_SEC, curr_edc->limit_time - (curr_epoch - start_epoch));
+            left_right_str(remain_line, kMaxLineWord + 1, remain_sec_str, action_type);
+            show_line(p_ctx, 3, remain_line);
+        }
     }
 
-    init_printertype(&empty_usage);
-    if (!usage_same_as(&ptr_counter.photocopy, &empty_usage) 
+    if (!usage_empty(&ptr_counter.photocopy)
             && gen_cost_log(p_ctx, COPY, &ptr_counter.photocopy) != kSuccess)
     {
         fprintf(stderr, "Generate EDC log of copy failure\n");
         return kFailure;
     }
 
-    init_printertype(&empty_usage);
-    if (!usage_same_as(&ptr_counter.print, &empty_usage) 
+    if (!usage_empty(&ptr_counter.print)
             && gen_cost_log(p_ctx, PRINT, &ptr_counter.print) != kSuccess)
     {
         fprintf(stderr, "Generate EDC log of print failure\n");
@@ -2204,25 +2207,18 @@ int quota_state(EDC_CTX* p_ctx)
     }
 
     //release print
-    buzzer((kMicroPerSecond / 10) * 1);
-    usleep(kMicroPerSecond / 10);
-    buzzer((kMicroPerSecond / 10) * 1);
-    usleep(kMicroPerSecond / 2);
+    buzzer(kMicroPerSecond * kBuzzerShort);
+    usleep(kMicroPerSecond * kWaitSecDoubleBuzzer);
+    buzzer(kMicroPerSecond * kBuzzerShort); 
+    usleep(kMicroPerSecond * kWaitSecStopPtrCount);
     if (ptr_count_stop(p_ctx->lkp_ctx) != kSuccess)
     {
         fprintf(stderr, "Stop print counter failure\n");
         return kFailure;
     }
 
-    if (enject_or_timeout == 1)
-    {
-        snprintf(edc_log, kMaxEDCLogLen, PTN_CARD_ENJECT, p_ctx->curr_card_sn);
-    }
-    else
-    {
-        snprintf(edc_log, kMaxEDCLogLen, PTN_CARD_TIMEOUT, p_ctx->curr_card_sn);
-    }
-
+    snprintf(edc_log, kMaxEDCLogLen, (enject_or_timeout==1)?PTN_CARD_TIMEOUT:PTN_CARD_ENJECT,
+            p_ctx->curr_card_sn);
     if (append_edc_log(p_ctx, CARD, edc_log) != kSuccess)
     {
         fprintf(stderr, "Append EDC log failure\n");
@@ -2443,6 +2439,34 @@ int usage_same_as(PRINTERTYPE *p1, PRINTERTYPE *p2)
     return kTrue;
 }
 
+int usage_empty(PRINTERTYPE *p)
+{
+    int i;
+
+    if (!p)
+    {
+        fprintf(stderr, "Parameter Fail!\n");
+        return kFailure;
+    }
+
+    for (i = 0; i < kMaxPrtPage; i++)
+    {
+        if (p->u16_gray_scale_a[i] != 0 ||
+            p->u16_gray_scale_b[i] != 0 ||
+            p->u16_color_a[i] != 0 ||
+            p->u16_color_b[i] != 0 ||
+            p->u16_double_gray_scale_a[i] != 0 ||
+            p->u16_double_gray_scale_b[i] != 0 ||
+            p->u16_double_color_a[i] != 0 ||
+            p->u16_double_color_b[i] != 0)
+        {
+            return kFalse;
+        }
+    }
+
+    return kTrue;
+}
+
 int gen_cost_log(EDC_CTX* p_ctx, const EDC_LOG_TYPE log_type, PRINTERTYPE *usage)
 {
     //NOTE! kMaxEDCLogLen maybe not long enough when many pages is not 0
@@ -2645,11 +2669,13 @@ int setup_state(EDC_CTX* p_ctx)
         return kFailure;
     }
 
+    /*CLD TEST
     if (stop_sync_thr(p_ctx) != kSuccess)
     {
         fprintf(stderr, "Can't stop threads.\n");
         return kFailure;
     }
+    */
 
     // Clean screen and set LED
     if(lcd_clean_scr(p_ctx->lkp_ctx) != kSuccess)
@@ -2689,10 +2715,10 @@ int setup_state(EDC_CTX* p_ctx)
         switch (state)
         {
             case SET_PRT_TYPE:
+                show_line(p_ctx, 0, STR_SETUP_PRT_CON_TYPE);
+                show_line(p_ctx, 3, STR_EMPTY);
                 while (kTrue)
                 {
-                    show_line(p_ctx, 0, STR_SETUP_PRT_CON_TYPE);
-                    show_line(p_ctx, 3, STR_EMPTY);
                     state_ret = get_str_from_keypad(p_ctx, STR_EMPTY,
                             new_prt_con_type_str, kMaxConnectTypeLen + 1, 1);
                     //fprintf(stderr, "ret: %d, value: %s\n", state_ret, new_prt_con_type_str);
@@ -2719,10 +2745,10 @@ int setup_state(EDC_CTX* p_ctx)
                 //fprintf(stderr, "ret: %d, value: %s\n", state_ret, new_edc_id);
                 break;
             case SET_EDC_IP:
+                show_line(p_ctx, 0, STR_SETUP_EDC_IP);
+                show_line(p_ctx, 3, STR_EMPTY);
                 while (kTrue)
                 {
-                    show_line(p_ctx, 0, STR_SETUP_EDC_IP);
-                    show_line(p_ctx, 3, STR_EMPTY);
                     state_ret = get_ipv4_from_keypad(p_ctx, STR_EMPTY,
                             new_edc_ip, kMaxIPLen + 1, 1);
                     //fprintf(stderr, "ret: %d, value: %s\n", state_ret, new_edc_ip);
@@ -2740,10 +2766,10 @@ int setup_state(EDC_CTX* p_ctx)
                 }
                 break;
             case SET_SUBMASK:
+                show_line(p_ctx, 0, STR_SETUP_SUBMASK);
+                show_line(p_ctx, 3, STR_EMPTY);
                 while (kTrue)
                 {
-                    show_line(p_ctx, 0, STR_SETUP_SUBMASK);
-                    show_line(p_ctx, 3, STR_EMPTY);
                     state_ret = get_ipv4_from_keypad(p_ctx, STR_EMPTY,
                                 new_submask, kMaxIPLen + 1, 1);
                     //fprintf(stderr, "ret: %d, value: %s\n", state_ret, new_submask);
@@ -2761,10 +2787,10 @@ int setup_state(EDC_CTX* p_ctx)
                 }
                 break;
             case SET_GATEWAY:
+                show_line(p_ctx, 0, STR_SETUP_GATEWAY);
+                show_line(p_ctx, 3, STR_EMPTY);
                 while (kTrue)
                 {
-                    show_line(p_ctx, 0, STR_SETUP_GATEWAY);
-                    show_line(p_ctx, 3, STR_EMPTY);
                     state_ret = get_ipv4_from_keypad(p_ctx, STR_EMPTY,
                                 new_gateway, kMaxIPLen + 1, 1);
                     //fprintf(stderr, "ret: %d, value: %s\n", state_ret, new_gateway);
@@ -2782,10 +2808,10 @@ int setup_state(EDC_CTX* p_ctx)
                 }
                 break;
             case SET_SRV_IP:
+                show_line(p_ctx, 0, STR_SETUP_SERVER_IP);
+                show_line(p_ctx, 3, STR_EMPTY);
                 while (kTrue)
                 {
-                    show_line(p_ctx, 0, STR_SETUP_SERVER_IP);
-                    show_line(p_ctx, 3, STR_EMPTY);
                     state_ret = get_ipv4_from_keypad(p_ctx, STR_EMPTY,
                                 new_server_ip, kMaxIPLen + 1, 1);
                     //fprintf(stderr, "ret: %d, value: %s\n", state_ret, new_server_ip);
@@ -2803,10 +2829,10 @@ int setup_state(EDC_CTX* p_ctx)
                 }
                 break;
             case SET_SRV_PORT:
+                show_line(p_ctx, 0, STR_SETUP_SERVER_PORT);
+                show_line(p_ctx, 3, STR_EMPTY);
                 while (kTrue)
                 {
-                    show_line(p_ctx, 0, STR_SETUP_SERVER_PORT);
-                    show_line(p_ctx, 3, STR_EMPTY);
                     state_ret = get_str_from_keypad(p_ctx, STR_EMPTY,
                                 new_server_port_str, kMaxPortLen + 1, 1);
                     //fprintf(stderr, "ret: %d, value: %s\n", state_ret, new_server_port_str);
@@ -2858,7 +2884,6 @@ int setup_state(EDC_CTX* p_ctx)
                     }
                     usleep(kMicroPerSecond / 10);
                 }
-                fprintf(stderr, "ret: %d\n", state_ret);
                 break;
         }
 
@@ -2888,6 +2913,7 @@ int setup_state(EDC_CTX* p_ctx)
             }
             else if (state_ret == kASCIIDown)
             {
+                show_line(p_ctx, 2, STR_SETUP_WAIT);
                 fprintf(stderr, "Write to ini: %s\n", kServerIni);
                 strncpy(p_ctx->edc_id, new_edc_id, kMaxEDCIDLen+1);
                 strncpy(p_ctx->edc_ip, new_edc_ip, kMaxIPLen+1);
@@ -2976,6 +3002,7 @@ int setup_state(EDC_CTX* p_ctx)
     fprintf(stderr, "CLD: SERVER_PORT: %s.\n", new_server_port);
     */
 
+    /* CLD TEST
     // Restart threads
     if (pthread_create(&(p_ctx->sync_list_thr), NULL,
                 (void*)sync_list_thr_func, (void*)p_ctx) != kSuccess)
@@ -2990,6 +3017,7 @@ int setup_state(EDC_CTX* p_ctx)
         fprintf(stderr, "Create sync thread failure.\n");
         return kFailure;
     }
+    */
 
     p_ctx->state = IDLE;
     return kSuccess;
@@ -3007,6 +3035,9 @@ int get_str_from_keypad(EDC_CTX *p_ctx, const char* prompt,
         fprintf(stderr, "Parameter Fail!\n");
         return kFailure;
     }
+
+    snprintf(scr_line_str, kMaxLineWord + 1, "%s%s", prompt, buf);
+    show_line(p_ctx, scr_line, scr_line_str);
 
     ptr_buf = buf + strlen(buf);
     while (kTrue)
@@ -3053,10 +3084,10 @@ int get_str_from_keypad(EDC_CTX *p_ctx, const char* prompt,
             {
                 return kASCIIUp;
             }
+
+            snprintf(scr_line_str, kMaxLineWord + 1, "%s%s", prompt, buf);
+            show_line(p_ctx, scr_line, scr_line_str);
         }
-        snprintf(scr_line_str, kMaxLineWord + 1, "%s%s", prompt, buf);
-        show_line(p_ctx, scr_line, scr_line_str);
-        usleep(kMicroPerSecond / 10);
     }
 
     return kASCIIDown;
@@ -3082,6 +3113,8 @@ int get_ipv4_from_keypad(EDC_CTX *p_ctx, const char* prompt,
         return kFailure;
     }
 
+    snprintf(scr_line_str, kMaxLineWord + 1, "%s%s", prompt, buf);
+    show_line(p_ctx, scr_line, scr_line_str);
     ptr_buf = buf + strlen(buf);
     while (kTrue)
     {   
@@ -3137,13 +3170,10 @@ int get_ipv4_from_keypad(EDC_CTX *p_ctx, const char* prompt,
             {
                 return kASCIIUp;
             }
+            snprintf(scr_line_str, kMaxLineWord + 1, "%s%s", prompt, buf);
+            show_line(p_ctx, scr_line, scr_line_str);
         }
-        snprintf(scr_line_str, kMaxLineWord + 1, "%s%s", prompt, buf);
-        show_line(p_ctx, scr_line, scr_line_str);
-        usleep(kMicroPerSecond / 10);
     }
-    snprintf(scr_line_str, kMaxLineWord + 1, "%s%s", prompt, buf);
-    show_line(p_ctx, scr_line, scr_line_str);
 
     return kASCIIDown;
 }
@@ -3166,10 +3196,24 @@ int buzzer(int msec)
     return kSuccess;
 }
 
-int show_datetime(EDC_CTX* p_ctx)
+int get_current_time_r(struct tm* p_time_info)
 {
     time_t cur_time;
-    struct tm time_info;
+
+    if (!p_time_info)
+    {
+        fprintf(stderr, "Parameter Fail!\n");
+        return kFailure;
+    }
+
+    cur_time = time(NULL);
+    localtime_r(&cur_time, p_time_info);
+
+    return kSuccess;
+}
+
+int show_datetime(EDC_CTX* p_ctx, struct tm* p_time_info)
+{
     char time_str[kMaxLineWord + 1];
     char line_str[kMaxLineWord + 1];
 
@@ -3179,13 +3223,11 @@ int show_datetime(EDC_CTX* p_ctx)
         return kFailure;
     }
 
-    cur_time = time(NULL);
-    localtime_r(&cur_time, &time_info);
     snprintf(time_str, kMaxLineWord + 1, "%.2d/%.2d %.2d:%.2d",
-            time_info.tm_mon + 1,
-            time_info.tm_mday,
-            time_info.tm_hour,
-            time_info.tm_min);
+            p_time_info->tm_mon + 1,
+            p_time_info->tm_mday,
+            p_time_info->tm_hour,
+            p_time_info->tm_min);
 
     if (left_right_str(line_str, kMaxLineWord + 1, time_str, p_ctx->edc_id))
     {
@@ -3339,7 +3381,6 @@ int show_line(EDC_CTX *p_ctx, int line, const char *string)
             return kFailure;
         }
 
-        //usleep(kMicroPerSecond / 10);
         ret = lcd_print_out(p_ctx->lkp_ctx);
 
         if (pthread_mutex_unlock(&p_ctx->lkp_ctx_mutex))
@@ -3360,6 +3401,8 @@ int show_line(EDC_CTX *p_ctx, int line, const char *string)
             return kFailure;
         }
     }
+
+    usleep(kMicroPerSecond * 0.2);
 
     return kSuccess;
 }
