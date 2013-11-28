@@ -292,6 +292,7 @@ typedef enum _fn_state
     SET_CONFIRM
 } FN_STATE;
 
+
 typedef enum _edc_log_type
 {
     CARD,
