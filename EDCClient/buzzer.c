@@ -37,6 +37,57 @@
 #define MAX_MEM_EDC_LOG     (256)
 #define MAX_EDC_LOG_LEN     (256)
 #define MAX_LOG_TYPE_LEN    (16)
+#define MAX_LOG_LEVEL_LEN   (16)
+
+// log macro function
+#define log0(p_ctx, lv, mod_name, func_name, exp) \
+{                                                 \
+    if (lv <= p_ctx->log_ctx.log_level)                   \
+    {                                             \
+        log_lock(&p_ctx->log_ctx);                          \
+        fprintf(stderr, "%s[%s]%s: %s: " exp "\n",\
+                get_log_YmdHMS( ),                \
+                mod_name,                         \
+                func_name,                        \
+                LOGLEVLE2STR[lv]                  \
+        );                                        \
+        log_unlock(&p_ctx->log_ctx);                        \
+    }                                             \
+}                                                 \
+
+#define log1(p_ctx, lv, mod_name, func_name, exp, p1) \
+{                                                 \
+    if (lv <= p_ctx->log_level)                   \
+    {                                             \
+        log_lock(&p_ctx->log_ctx);                          \
+        fprintf(stderr, "%s[%s]%s: %s: " exp "\n",\
+                get_log_YmdHMS( ),                \
+                mod_name,                         \
+                func_name,                        \
+                LOGLEVLE2STR[lv],                 \
+                p1                                \
+        );                                        \
+        log_unlock(&p_ctx->log_ctx);                        \
+    }                                             \
+}                                                 \
+
+#define log2(p_ctx, lv, mod_name, func_name, exp, p1, p2) \
+{                                                 \
+    if (lv <= p_ctx->log_level)                   \
+    {                                             \
+        log_lock(&p_ctx->log_ctx);                          \
+        fprintf(stderr, "%s[%s]%s: %s: " exp "\n",\
+                get_log_YmdHMS( ),                \
+                mod_name,                         \
+                func_name,                        \
+                LOGLEVLE2STR[lv],                 \
+                p1, p2                            \
+        );                                        \
+        log_unlock(&p_ctx->log_ctx);                        \
+    }                                             \
+}                                                 \
+
+const char g_mod[] = "EDCClient";
 
 const char kEmpListFile[] = "./employee.list";
 const char kEDCListFile[] = "./edc.list";
@@ -181,11 +232,28 @@ const char STR_ONLINE[] = "On-Line";
 const char STR_OFFLINE[] = "Off-Line";
 
 
+typedef enum _log_level
+{
+    FATAL,
+    ERROR,
+    WARN,
+    INFO,
+    DEBUG
+} LOG_LEVEL; 
+
+const char LOGLEVLE2STR[5][MAX_LOG_LEVEL_LEN] = {
+    "FATAL",
+    "ERROR",
+    "WARN",
+    "INFO",
+    "DEBUG"
+};
+
 typedef struct _log
 {
     int log_level;
     pthread_mutex_t log_mutex;
-} LOG, *PLOG;
+} LOG_CTX, *PLOG_CTX;
 
 enum RET{
         RET_SUCCESS = 0,           // жие\бC
@@ -309,6 +377,7 @@ typedef struct _edc_ctx
     PLKPCONTEXT     lkp_ctx;
     COM_CTX         com_ctx;
     KEY_CTX         key_ctx;
+    LOG_CTX         log_ctx;
 
     int             backlight_flag;
 
@@ -343,15 +412,12 @@ typedef struct _edc_ctx
     PROJ_DATA       proj_list[MAX_PROJ_LIST_SIZE];
     pthread_mutex_t proj_mutex;
 
-
-    pthread_t       keypad_thr;       
-
     pthread_t       sync_list_thr;
 
     pthread_t       sync_log_thr;
     char            edc_tmp_log[MAX_MEM_EDC_LOG][MAX_EDC_LOG_LEN];
     int             edc_log_num;
-    pthread_mutex_t log_mutex;
+    pthread_mutex_t edc_log_mutex;
 } EDC_CTX;
 
 
@@ -407,7 +473,7 @@ int get_str_before_char(const char*, const char, char*, int);
 // EDC log Utilities
 int sync_log(EDC_CTX*);
 int save_log_to_local(EDC_CTX*, const char*);
-int get_cur_YmdHMS_r(char*, int);
+char* get_cur_YmdHMS_r(char*, int);
 int append_edc_log(EDC_CTX*, const EDC_LOG_TYPE, const char*);
 int gen_cost_log(EDC_CTX*, const EDC_LOG_TYPE, PRINTERTYPE*);
 
@@ -433,7 +499,11 @@ int stop_sync_thr(EDC_CTX*);
 void sync_thr_func(void*);
 void sync_log_thr_func(void*);
 
-
+// Log Utilities
+int init_log(LOG_CTX* p_ctx, LOG_LEVEL level);
+char* get_log_YmdHMS(void);
+int log_lock(LOG_CTX* p_ctx);
+int log_unlock(LOG_CTX* p_ctx);
 
 
 int main(void)
@@ -441,6 +511,7 @@ int main(void)
     int ret;
     int ret_code = kSuccess;
     EDC_CTX ctx;
+    EDC_CTX* p_ctx = &ctx;
 
     if (init(&ctx, kDefINIFile))
     {
@@ -466,6 +537,7 @@ int main(void)
         goto INIT_FAIL;
     }
 
+    log0(p_ctx, INFO, g_mod, __func__, "Start main loop");
     // Main Loop
     while (kTrue)
     {
@@ -701,13 +773,13 @@ int append_edc_log(EDC_CTX *p_ctx, const EDC_LOG_TYPE type, const char *content)
         return kFailure;
     }
 
-    if (get_cur_YmdHMS_r(cur_date, kMaxYmdHMSLen + 1) != kSuccess)
+    if (get_cur_YmdHMS_r(cur_date, kMaxYmdHMSLen + 1) == NULL)
     {
         fprintf(stderr, "Get current datetime fail\n");
         return kFailure;
     }
 
-    if (pthread_mutex_lock(&p_ctx->log_mutex))
+    if (pthread_mutex_lock(&p_ctx->edc_log_mutex))
     {
         fprintf(stderr, "Lock EDC log mutex failure!\n");
         return kFailure;
@@ -734,7 +806,7 @@ int append_edc_log(EDC_CTX *p_ctx, const EDC_LOG_TYPE type, const char *content)
         p_ctx->edc_log_num++;
     }
 
-    if (pthread_mutex_unlock(&p_ctx->log_mutex))
+    if (pthread_mutex_unlock(&p_ctx->edc_log_mutex))
     {
         fprintf(stderr, "Unlock EDC log mutex failure!\n");
         return kFailure;
@@ -743,7 +815,7 @@ int append_edc_log(EDC_CTX *p_ctx, const EDC_LOG_TYPE type, const char *content)
     return 0;
 }
 
-int get_cur_YmdHMS_r(char *buf, int buf_len)
+char* get_cur_YmdHMS_r(char *buf, int buf_len)
 {
     time_t time_cur;
     struct tm local_time = {0};
@@ -751,7 +823,7 @@ int get_cur_YmdHMS_r(char *buf, int buf_len)
     if (!buf)
     {
         fprintf(stderr, "Parameter Fail!\n");
-        return kFailure;
+        return NULL;
     }
 
     strncpy(buf, "0000-00-00 00:00:00", buf_len);
@@ -767,7 +839,7 @@ int get_cur_YmdHMS_r(char *buf, int buf_len)
             local_time.tm_min,
             local_time.tm_sec);
 
-    return kSuccess;
+    return buf;
 }
 
 int save_log_to_local(EDC_CTX *p_ctx, const char *log_tmp_file)
@@ -787,7 +859,7 @@ int save_log_to_local(EDC_CTX *p_ctx, const char *log_tmp_file)
         return kFailure;
     }
 
-    if (pthread_mutex_lock(&p_ctx->log_mutex))
+    if (pthread_mutex_lock(&p_ctx->edc_log_mutex))
     {
         fprintf(stderr, "Lock EDC log mutex failure!\n");
         fclose(fp_log);
@@ -800,7 +872,7 @@ int save_log_to_local(EDC_CTX *p_ctx, const char *log_tmp_file)
         if (fprintf(fp_log, "%s\n", p_ctx->edc_tmp_log[i]) <= 0)
         {
             fprintf(stderr, "Write to temp log file failure\n");
-            pthread_mutex_unlock(&p_ctx->log_mutex);
+            pthread_mutex_unlock(&p_ctx->edc_log_mutex);
             fclose(fp_log);
             return kFailure;
         }
@@ -809,7 +881,7 @@ int save_log_to_local(EDC_CTX *p_ctx, const char *log_tmp_file)
     // 2. clean up ctx
     p_ctx->edc_log_num = 0;
 
-    if (pthread_mutex_unlock(&p_ctx->log_mutex))
+    if (pthread_mutex_unlock(&p_ctx->edc_log_mutex))
     {
         fprintf(stderr, "Unlock EDC log mutex failure!\n");
         fclose(fp_log);
@@ -916,13 +988,12 @@ int sync_log(EDC_CTX *p_ctx)
     buf_ptr += line_len;
     if (p_ctx->edc_log_num > 0)
     {
-        if (pthread_mutex_lock(&p_ctx->log_mutex))
+        if (pthread_mutex_lock(&p_ctx->edc_log_mutex))
         {
             fprintf(stderr, "Lock EDC log mutex failure!\n");
             return kFailure;
         }
 
-        fprintf(stderr, "CLD: Sync main lock: %d \n", p_ctx->edc_log_num);
         log_count = 0;
         while (log_count < p_ctx->edc_log_num)
         {
@@ -936,12 +1007,11 @@ int sync_log(EDC_CTX *p_ctx)
             else
             {
                 // If buffer is not enough, send current log
-                fprintf(stderr, "CLD: %s\n", log_buf);
                 if (sock_write(p_ctx->server_fd, log_buf, buf_ptr - log_buf) != buf_ptr - log_buf)
                 {
                     fprintf(stderr, "Send memory log to server fail.\n");
                     p_ctx->connected = kFalse;
-                    pthread_mutex_unlock(&p_ctx->log_mutex);
+                    pthread_mutex_unlock(&p_ctx->edc_log_mutex);
                     return kFailure;
                 }
 
@@ -959,17 +1029,16 @@ int sync_log(EDC_CTX *p_ctx)
             log_count++;
         }
 
-        fprintf(stderr, "CLD2: %s\n", log_buf);
         if (sock_write(p_ctx->server_fd, log_buf, buf_ptr - log_buf) != buf_ptr - log_buf)
         {
             p_ctx->connected = kFalse;
-            pthread_mutex_unlock(&p_ctx->log_mutex);
+            pthread_mutex_unlock(&p_ctx->edc_log_mutex);
             return kFailure;
         }
 
         p_ctx->edc_log_num = 0;
 
-        if (pthread_mutex_unlock(&p_ctx->log_mutex))
+        if (pthread_mutex_unlock(&p_ctx->edc_log_mutex))
         {
             fprintf(stderr, "Unlock EDC log mutex failure!\n");
             return kFailure;
@@ -991,6 +1060,18 @@ int init(EDC_CTX *p_ctx, const char* com_ini_file)
     p_ctx->connected = kFalse;
     memset(p_ctx->project_code, 0, kMaxProjectCodeLen + 1);
 
+    if (load_server_set(p_ctx, kServerIni) != kSuccess)
+    {
+        fprintf(stderr, "Load server setup failure.\n");
+        return kFailure;
+    }
+
+    if (init_log(&p_ctx->log_ctx, INFO) != kSuccess)
+    {
+        fprintf(stderr, "Can not create log ctx.\n");
+        return kFailure;
+    }
+
     if (pthread_mutex_init(&(p_ctx->emp_mutex), NULL) != kSuccess)
     {
         fprintf(stderr, "Can not create employee mutex.\n");
@@ -1009,7 +1090,7 @@ int init(EDC_CTX *p_ctx, const char* com_ini_file)
         return kFailure;
     }
 
-    if (pthread_mutex_init(&(p_ctx->log_mutex), NULL) != kSuccess)
+    if (pthread_mutex_init(&(p_ctx->edc_log_mutex), NULL) != kSuccess)
     {
         fprintf(stderr, "Can not create EDC log mutex.\n");
         return kFailure;
@@ -1047,19 +1128,12 @@ int init(EDC_CTX *p_ctx, const char* com_ini_file)
         return kFailure;
     }
 
-    if (load_server_set(p_ctx, kServerIni) != kSuccess)
-    {
-        fprintf(stderr, "Load server setup failure.\n");
-        return kFailure;
-    }
-
     if (load_network_set(p_ctx, kNetworkIni) != kSuccess)
     {
         fprintf(stderr, "Load network setup failure.\n");
         return kFailure;
     }
 
-    /*
     if (connect_server(p_ctx) != kSuccess)
     {
         fprintf(stderr, "Connect to server failure,"
@@ -1073,7 +1147,6 @@ int init(EDC_CTX *p_ctx, const char* com_ini_file)
             return kFailure;
         }
     }
-    */
 
     if (load_local_lists(p_ctx) != kSuccess)
     {
@@ -1081,16 +1154,6 @@ int init(EDC_CTX *p_ctx, const char* com_ini_file)
         return kFailure;
     }
 
-    /*
-    if (pthread_create(&(p_ctx->keypad_thr), NULL,
-                (void*)keypad_thr_func, (void*)p_ctx) != kSuccess)
-    {
-        fprintf(stderr, "Create keypad thread failure.\n");
-        return kFailure;
-    }
-    */
-
-    /*
     if (pthread_create(&(p_ctx->sync_list_thr), NULL,
                 (void*)sync_list_thr_func, (void*)p_ctx) != kSuccess)
     {
@@ -1104,7 +1167,6 @@ int init(EDC_CTX *p_ctx, const char* com_ini_file)
         fprintf(stderr, "Create sync thread failure.\n");
         return kFailure;
     }
-    */
 
     p_ctx->edc_log_num = 0;
     memset(p_ctx->edc_tmp_log, 0, kMaxMemEDCLog * kMaxEDCLogLen);
@@ -1263,16 +1325,7 @@ void quit(EDC_CTX *p_ctx)
 
     stop_sync_thr(p_ctx);
 
-    if (pthread_cancel(p_ctx->keypad_thr) != kSuccess)
-    {
-        fprintf(stderr, "Can not join sync_list thread.\n");
-    }
-
-    if (pthread_join(p_ctx->keypad_thr, NULL) != kSuccess)
-    {
-        fprintf(stderr, "Can not join keypad thread.\n");
-    }
-
+    return;
 }
 
 int connect_server(EDC_CTX* p_ctx)
@@ -2669,13 +2722,11 @@ int setup_state(EDC_CTX* p_ctx)
         return kFailure;
     }
 
-    /*CLD TEST
     if (stop_sync_thr(p_ctx) != kSuccess)
     {
         fprintf(stderr, "Can't stop threads.\n");
         return kFailure;
     }
-    */
 
     // Clean screen and set LED
     if(lcd_clean_scr(p_ctx->lkp_ctx) != kSuccess)
@@ -3002,7 +3053,6 @@ int setup_state(EDC_CTX* p_ctx)
     fprintf(stderr, "CLD: SERVER_PORT: %s.\n", new_server_port);
     */
 
-    /* CLD TEST
     // Restart threads
     if (pthread_create(&(p_ctx->sync_list_thr), NULL,
                 (void*)sync_list_thr_func, (void*)p_ctx) != kSuccess)
@@ -3017,7 +3067,6 @@ int setup_state(EDC_CTX* p_ctx)
         fprintf(stderr, "Create sync thread failure.\n");
         return kFailure;
     }
-    */
 
     p_ctx->state = IDLE;
     return kSuccess;
@@ -4248,4 +4297,60 @@ int serWriteCOM(COM_CTX *p_ctx, const void *pcData, const int ci32Len)
     }while((ci32Len > i) && (j > 0));
 
     return i;
+}
+
+int init_log(LOG_CTX* p_ctx, LOG_LEVEL level)
+{
+    if (!p_ctx)
+    {
+        fprintf(stderr, "Parameter Fail!\n");
+        return kFailure;
+    }
+
+    p_ctx->log_level = level;
+
+    if (pthread_mutex_init(&(p_ctx->log_mutex), NULL) != kSuccess)
+    {
+        fprintf(stderr, "Can not create employee mutex.\n");
+        return kFailure;
+    }
+
+    return kSuccess;
+}
+
+char* get_log_YmdHMS(void)
+{
+    struct tm time_info = { 0 };
+    static char cur_date[21];
+    /* init */
+    memset(cur_date, 0, 21);
+    get_current_time_r(&time_info);
+    snprintf(cur_date, sizeof(cur_date), "%.4d/%.2d/%.2d %.2d:%.2d:%.2d",
+            time_info.tm_year+1900,
+            time_info.tm_mon+1,
+            time_info.tm_mday,
+            time_info.tm_hour,
+            time_info.tm_min,
+            time_info.tm_sec);
+    return cur_date;
+}
+
+int log_lock(LOG_CTX* p_ctx)
+{
+    if (pthread_mutex_lock(&p_ctx->log_mutex))
+    {
+        fprintf(stderr, "Lock log mutex failure!\n");
+        return kFailure;
+    }
+    return kSuccess;
+}
+
+int log_unlock(LOG_CTX* p_ctx)
+{
+    if (pthread_mutex_unlock(&p_ctx->log_mutex))
+    {
+        fprintf(stderr, "Unlock log mutex failure!\n");
+        return kFailure;
+    }
+    return kSuccess;
 }
