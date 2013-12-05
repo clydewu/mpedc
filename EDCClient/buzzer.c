@@ -257,6 +257,7 @@ typedef struct _log
 {
     int log_level;
     pthread_mutex_t log_mutex;
+    int fd_stderr;
     int log_pipe[2];
 } LOG_CTX, *PLOG_CTX;
 
@@ -4328,11 +4329,14 @@ int init_log(LOG_CTX* p_ctx, LOG_LEVEL level)
         return kFailure;
     }
 
+    p_ctx->fd_stderr = STDERR_FILENO;
     if (dup2(p_ctx->log_pipe[1], STDERR_FILENO) != kSuccess)
     {
         log0(stderr, "Can not duplicate stderr.\n");
         return kFailure;
     }
+
+    //TODO need to open a really file
 
     return kSuccess;
 }
@@ -4376,63 +4380,65 @@ int log_unlock(LOG_CTX* p_ctx)
 
 void log_thr_func(void *ctx)
 {
+    EDC_CTX *edc_ctx;
+    LOG_CTX *log_ctx;
     fd_set log_fds;
+    struct timeval timeout;
+    int sel_ret;
+
+    if (!ctx)
+    {
+        fprintf(stderr, "Parameter Fail!\n");
+        return kFailure;
+    }
+
+    edc_ctx = (EDC_CTX*)ctx;
+    log_ctx = &edc_ctx->log_ctx;
 
     while (kTrue) 
     {    
-        if ((TRUE == pEng->bLogQuit) && (0 == i32Ret))
-        {    
+        //TODO: Need a stop signal
+        if (kFalse)
+        {
             /* link stderr to stderr.log */
-            if (-1 == dup2(pEng->log.fdStderr, STDERR_FILENO))
+            if (dup2(log_ctx->fd_stderr, STDERR_FILENO) == kFailure)
             {    
-                fprintf(stdout, "[%s] [%s] %s: ERROR: dup2 failed: %s (%d -> %d)\n", 
-                        CS_LOG_curTime( ), gszMod, __func__, 
-                        strerror(errno), pEng->log.fdStderr, STDERR_FILENO);
+                log0(edc_ctx, ERROR, g_mod, __func__, "Dup2 failure when stop log\n");
             }    
-
-            CS_LOG_INFO0(gszMod, __func__, "log-backup thread exit (quit flag is set)");
-                                                                                                                  
             break;
         }    
 
         /* check if need rotate */
-        CS_SERV_bakStderrLog_noTemp(&(pEng->log), LOG_MIN_BAK_SIZE, 
-                                    LOG_FILE_PREFIX);
+        //TODO: port it
+        //CS_SERV_bakStderrLog_noTemp(&(pEng->log), LOG_MIN_BAK_SIZE, LOG_FILE_PREFIX);
+        //
+        FD_ZERO(&log_fds);
+        FD_SET(log_ctx->log_pipe[0], &log_fds);
+        timeout.tv_sec = 5;
+        timeout.tv_usec = 0;
 
-        /* Grail, 100318, use epoll to read log from pEng->i32FdPipe[0] *
-         * and write to pEng->i32FdStderrLog                            */
-        i32Ret = epoll_wait(pEng->i32FdEpoll, &rdEv, 1, EPOLL_TIMEOUT_MILLI_SEC);
-        if (i32Ret < 0) 
-        {    
-            fprintf(stdout, "[%s] [%s] %s: ERROR: Fail in epoll_wait: %s\n",
-                    CS_LOG_curTime( ), gszMod, __func__, strerror(errno));
-            continue;
-        }    
-        else if (i32Ret == 0)
-        {    
-            /* no log to write or timeout */
-            continue;
-        }    
-
-        /* is there event (log) in? */
-        if (rdEv.events & EPOLLIN)
+        sel_ret = select(log_ctx->log_pipe[0] + 1, NULL, &log_fds, NULL, &timeout);
+        if (sel_ret < 0 && errno != EINTR)
         {
-            i32nRead = read(pEng -> i32FdPipe[0], szRead, MAX_URL_LINE_SIZE);
+            fprintf(stderr, "Read stderr failure.\n",\
+                    strerror(errno));
+            return kFailure;
+        }
+        else if (sel_ret == 0)
+        {
+            fprintf(stderr, "Read stderr timeout.\n");
+            return kFailure;
+        }
+        else if (FD_ISSET(log_ctx->log_pipe[0], &log_fds))
+        {
             /* write to file */
-            if (0 > i32nRead)
+            if (read(log_ctx->log_pipe[0], szRead, MAX_URL_LINE_SIZE) < 0)
             {
-                fprintf(stdout, "[%s] [%s] %s: ERROR: read FD: %d fail: %s\n",
-                        CS_LOG_curTime( ), gszMod, __func__, pEng->i32FdPipe[0], strerror(errno));
+                log0(edc_ctx, ERROR, g_mod, __func__, "Read fd pf log failure.\n");
             }
             write(pEng->log.fdStderr, szRead, i32nRead);
         }
-        /* epoll event state error, EPOLLERR or EPOLLHUP */
-        else
-        {
-            fprintf(stdout, "[%s] [%s] %s: ERROR: epoll event state error, EPOLLERR or EPOLLHUP\n",
-                    CS_LOG_curTime( ), gszMod, __func__); 
-            continue; 
-        }
+
     }
     
     return NULL;
