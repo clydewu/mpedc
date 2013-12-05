@@ -39,7 +39,10 @@
 #define MAX_LOG_TYPE_LEN    (16)
 #define MAX_LOG_LEVEL_LEN   (16)
 
-// log macro function
+// log macro Function
+// Wht use macro here?
+// Cause of exp should be combine to the 2nd argument of frpintf
+// directly (Instead of be a %s)
 #define log0(p_ctx, lv, mod_name, func_name, exp) \
 {                                                 \
     if (lv <= p_ctx->log_ctx.log_level)                   \
@@ -54,6 +57,7 @@
         log_unlock(&p_ctx->log_ctx);                        \
     }                                             \
 }                                                 \
+
 
 #define log1(p_ctx, lv, mod_name, func_name, exp, p1) \
 {                                                 \
@@ -253,6 +257,7 @@ typedef struct _log
 {
     int log_level;
     pthread_mutex_t log_mutex;
+    int log_pipe[2];
 } LOG_CTX, *PLOG_CTX;
 
 enum RET{
@@ -497,8 +502,9 @@ int get_remote_list(EDC_CTX*,const char*,const char*, pthread_mutex_t*);
 
 // Thread
 int stop_sync_thr(EDC_CTX*);
-void sync_thr_func(void*);
-void sync_log_thr_func(void*);
+void sync_thr_func(void *ctx);
+void sync_log_thr_func(void *ctx);
+void log_thr_func(void *ctx);
 
 // Log Utilities
 int init_log(LOG_CTX* p_ctx, LOG_LEVEL level);
@@ -4316,6 +4322,18 @@ int init_log(LOG_CTX* p_ctx, LOG_LEVEL level)
         return kFailure;
     }
 
+    if (pipe(p_ctx->log_pipe) != kSuccess)
+    {
+        log0(stderr, "Can not create pipe for log.\n");
+        return kFailure;
+    }
+
+    if (dup2(p_ctx->log_pipe[1], STDERR_FILENO) != kSuccess)
+    {
+        log0(stderr, "Can not duplicate stderr.\n");
+        return kFailure;
+    }
+
     return kSuccess;
 }
 
@@ -4355,3 +4373,69 @@ int log_unlock(LOG_CTX* p_ctx)
     }
     return kSuccess;
 }
+
+void log_thr_func(void *ctx)
+{
+    fd_set log_fds;
+
+    while (kTrue) 
+    {    
+        if ((TRUE == pEng->bLogQuit) && (0 == i32Ret))
+        {    
+            /* link stderr to stderr.log */
+            if (-1 == dup2(pEng->log.fdStderr, STDERR_FILENO))
+            {    
+                fprintf(stdout, "[%s] [%s] %s: ERROR: dup2 failed: %s (%d -> %d)\n", 
+                        CS_LOG_curTime( ), gszMod, __func__, 
+                        strerror(errno), pEng->log.fdStderr, STDERR_FILENO);
+            }    
+
+            CS_LOG_INFO0(gszMod, __func__, "log-backup thread exit (quit flag is set)");
+                                                                                                                  
+            break;
+        }    
+
+        /* check if need rotate */
+        CS_SERV_bakStderrLog_noTemp(&(pEng->log), LOG_MIN_BAK_SIZE, 
+                                    LOG_FILE_PREFIX);
+
+        /* Grail, 100318, use epoll to read log from pEng->i32FdPipe[0] *
+         * and write to pEng->i32FdStderrLog                            */
+        i32Ret = epoll_wait(pEng->i32FdEpoll, &rdEv, 1, EPOLL_TIMEOUT_MILLI_SEC);
+        if (i32Ret < 0) 
+        {    
+            fprintf(stdout, "[%s] [%s] %s: ERROR: Fail in epoll_wait: %s\n",
+                    CS_LOG_curTime( ), gszMod, __func__, strerror(errno));
+            continue;
+        }    
+        else if (i32Ret == 0)
+        {    
+            /* no log to write or timeout */
+            continue;
+        }    
+
+        /* is there event (log) in? */
+        if (rdEv.events & EPOLLIN)
+        {
+            i32nRead = read(pEng -> i32FdPipe[0], szRead, MAX_URL_LINE_SIZE);
+            /* write to file */
+            if (0 > i32nRead)
+            {
+                fprintf(stdout, "[%s] [%s] %s: ERROR: read FD: %d fail: %s\n",
+                        CS_LOG_curTime( ), gszMod, __func__, pEng->i32FdPipe[0], strerror(errno));
+            }
+            write(pEng->log.fdStderr, szRead, i32nRead);
+        }
+        /* epoll event state error, EPOLLERR or EPOLLHUP */
+        else
+        {
+            fprintf(stdout, "[%s] [%s] %s: ERROR: epoll event state error, EPOLLERR or EPOLLHUP\n",
+                    CS_LOG_curTime( ), gszMod, __func__); 
+            continue; 
+        }
+    }
+    
+    return NULL;
+}
+
+
