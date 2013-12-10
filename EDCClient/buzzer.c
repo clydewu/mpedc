@@ -45,16 +45,16 @@
 // directly (Instead of be a %s)
 #define log0(p_ctx, lv, mod_name, func_name, exp) \
 {                                                 \
-    if (lv <= p_ctx->log_ctx.log_level)                   \
+    if (lv <= p_ctx->log_level)                   \
     {                                             \
-        log_lock(&p_ctx->log_ctx);                          \
+        log_lock(p_ctx);                          \
         fprintf(stderr, "%s[%s]%s: %s: " exp "\n",\
                 get_log_YmdHMS( ),                \
                 mod_name,                         \
                 func_name,                        \
                 LOGLEVLE2STR[lv]                  \
         );                                        \
-        log_unlock(&p_ctx->log_ctx);                        \
+        log_unlock(p_ctx);                        \
     }                                             \
 }                                                 \
 
@@ -519,7 +519,7 @@ int main(void)
     int ret;
     int ret_code = kSuccess;
     EDC_CTX ctx;
-    EDC_CTX* p_ctx = &ctx;
+    //EDC_CTX* p_ctx = &ctx;
 
     if (init(&ctx, kDefINIFile))
     {
@@ -545,7 +545,8 @@ int main(void)
         goto INIT_FAIL;
     }
 
-    log0(p_ctx, INFO, g_mod, __func__, "Start main loop");
+    //log0(p_ctx.log_ctx, INFO, g_mod, __func__, "Start main loop");
+    fprintf(stderr, "Start main loop\n");
     // Main Loop
     while (kTrue)
     {
@@ -2073,7 +2074,7 @@ int quota_state(EDC_CTX* p_ctx)
     {
         if (ptr_select(p_ctx->prt_con_type) != kSuccess)
         {
-            fprintf(stderr, "Set COM port printer failure.\n");
+            fprintf(stderr, "Set COM port printer failure: COM: %d\n", p_ctx->prt_con_type);
         }
     }
 
@@ -2171,6 +2172,8 @@ int quota_state(EDC_CTX* p_ctx)
                           || !usage_same_as(&(ptr_counter.print), &continue_print_usage));
         if (status_action_flag || usage_modified_flag)
         {
+            fprintf(stderr, "----- print count -----\n");
+            print_printertype(&(ptr_counter.print));
             // Action
             stage = 1;
             start_epoch = time(NULL);
@@ -2199,8 +2202,8 @@ int quota_state(EDC_CTX* p_ctx)
                         - gs * curr_edc->mono_a4
                         - cb * curr_edc->color_a3
                         - cs * curr_edc->color_a4;
-            fprintf(stderr, "CLD: cur_quota: %d, gb:%d, gs:%d, cb:%d, cs:%d\n",
-                    curr_quota, gb, gs, cb ,cs);
+            //fprintf(stderr, "CLD: cur_quota: %d, gb:%d, gs:%d, cb:%d, cs:%d\n",
+            //        curr_quota, gb, gs, cb ,cs);
             if (usage_modified_flag == kTrue)
             {
                 if (show_quota_info(p_ctx, curr_quota, gb, gs, cb, cs) != kSuccess)
@@ -2278,7 +2281,7 @@ int quota_state(EDC_CTX* p_ctx)
         return kFailure;
     }
 
-    snprintf(edc_log, kMaxEDCLogLen, (enject_or_timeout==1)?PTN_CARD_TIMEOUT:PTN_CARD_ENJECT,
+    snprintf(edc_log, kMaxEDCLogLen, (enject_or_timeout==1)?PTN_CARD_ENJECT:PTN_CARD_TIMEOUT,
             p_ctx->curr_card_sn);
     if (append_edc_log(p_ctx, CARD, edc_log) != kSuccess)
     {
@@ -2770,7 +2773,6 @@ int setup_state(EDC_CTX* p_ctx)
     //TODO so dirty here...
     while (kTrue)
     {
-        fprintf(stderr, "state: %d\n", state);
         switch (state)
         {
             case SET_PRT_TYPE:
@@ -3459,7 +3461,8 @@ int show_line(EDC_CTX *p_ctx, int line, const char *string)
         }
     }
 
-    usleep(kMicroPerSecond * 0.2);
+    //CLD: don't need to sleep here
+    //usleep(kMicroPerSecond * 0.2);
 
     return kSuccess;
 }
@@ -4323,18 +4326,23 @@ int init_log(LOG_CTX* p_ctx, LOG_LEVEL level)
         return kFailure;
     }
 
+    /*
+    fprintf(stderr, "open pipe");
     if (pipe(p_ctx->log_pipe) != kSuccess)
     {
-        log0(stderr, "Can not create pipe for log.\n");
+        log0(p_ctx, ERROR, g_mod, __func__, "Can not create pipe for log.\n");
         return kFailure;
     }
 
+    fprintf(stderr, "backup stderr");
     p_ctx->fd_stderr = STDERR_FILENO;
+    fprintf(stderr, "stderr");
     if (dup2(p_ctx->log_pipe[1], STDERR_FILENO) != kSuccess)
     {
-        log0(stderr, "Can not duplicate stderr.\n");
+        log0(p_ctx, ERROR, g_mod, __func__, "Can not duplicate stderr.\n");
         return kFailure;
     }
+    */
 
     //TODO need to open a really file
 
@@ -4378,6 +4386,7 @@ int log_unlock(LOG_CTX* p_ctx)
     return kSuccess;
 }
 
+/*
 void log_thr_func(void *ctx)
 {
     EDC_CTX *edc_ctx;
@@ -4400,7 +4409,7 @@ void log_thr_func(void *ctx)
         //TODO: Need a stop signal
         if (kFalse)
         {
-            /* link stderr to stderr.log */
+            //link stderr to stderr.log
             if (dup2(log_ctx->fd_stderr, STDERR_FILENO) == kFailure)
             {    
                 log0(edc_ctx, ERROR, g_mod, __func__, "Dup2 failure when stop log\n");
@@ -4408,7 +4417,7 @@ void log_thr_func(void *ctx)
             break;
         }    
 
-        /* check if need rotate */
+        // check if need rotate
         //TODO: port it
         //CS_SERV_bakStderrLog_noTemp(&(pEng->log), LOG_MIN_BAK_SIZE, LOG_FILE_PREFIX);
         //
@@ -4431,7 +4440,6 @@ void log_thr_func(void *ctx)
         }
         else if (FD_ISSET(log_ctx->log_pipe[0], &log_fds))
         {
-            /* write to file */
             if (read(log_ctx->log_pipe[0], szRead, MAX_URL_LINE_SIZE) < 0)
             {
                 log0(edc_ctx, ERROR, g_mod, __func__, "Read fd pf log failure.\n");
@@ -4443,5 +4451,5 @@ void log_thr_func(void *ctx)
     
     return NULL;
 }
-
+*/
 

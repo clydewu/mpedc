@@ -8,6 +8,7 @@ using System.Collections;
 using System.Data;
 using System.Data.SqlClient;
 using System.Windows.Forms;
+using System.Diagnostics;
 
 namespace EDCServer
 {
@@ -26,25 +27,35 @@ namespace EDCServer
             this.sqlConn = new SqlConnection(System.String.Format("Data Source={0};User Id={2}; Password={3}; Initial Catalog={1}",
                 config.source, config.db, config.user, config.password));
             this.serverfrm = frm;
+            this.port = config.port;
         }
 
         public void Start()
         {
             this.sqlConn.Open();
-            this.tcpListener = new TcpListener(IPAddress.Any, 3000);
+            this.tcpListener = new TcpListener(IPAddress.Any, port);
             this.listenThread = new Thread(new ThreadStart(ListenForClients));
             this.listenThread.Start();
+            EventLog.WriteEntry("EDCAgent", "Start EDCAgent", EventLogEntryType.Information);
         }
 
         public void Close()
-        {
+        {       
             foreach (TcpClient client in connectClient)
             {
                 System.Diagnostics.Debug.WriteLine("Close connect" + client.GetHashCode());
+                EventLog.WriteEntry("EDCAgent", "Close Connect", EventLogEntryType.Information);
                 client.Close();
             }
-            sqlConn.Close();
-            this.listenThread.Abort();
+            if (sqlConn.State == ConnectionState.Connecting)
+            {
+                sqlConn.Close();
+            }
+
+            if (listenThread != null && listenThread.ThreadState == System.Threading.ThreadState.Running)
+            {
+                this.listenThread.Abort();
+            }
         }
 
         private void ListenForClients()
@@ -59,6 +70,7 @@ namespace EDCServer
                 connectClient.Add(client);
 
                 System.Diagnostics.Debug.WriteLine("New Connect, total:" + connectClient.Count);
+                EventLog.WriteEntry("EDCAgent", "New Client connected", EventLogEntryType.Information);
                 //create a thread to handle communication 
                 //with connected client
                 Thread clientThread = new Thread(new ParameterizedThreadStart(HandleClientComm));
@@ -79,6 +91,7 @@ namespace EDCServer
 
             clientStream = tcpClient.GetStream();
             System.Diagnostics.Debug.WriteLine("Start read from client" + client.GetHashCode());
+            EventLog.WriteEntry("EDCAgent", "Client thread start", EventLogEntryType.Information);
 
             while (true)
             {
@@ -93,6 +106,7 @@ namespace EDCServer
                 {
                     //a socket error has occured
                     System.Diagnostics.Debug.WriteLine("IOError");
+                    EventLog.WriteEntry("EDCAgent", "Client stream read failure", EventLogEntryType.FailureAudit);
                     break;
                 }
 
@@ -100,6 +114,7 @@ namespace EDCServer
                 {
                     //the client has disconnected from the server
                     System.Diagnostics.Debug.WriteLine("Disconnect");
+                    EventLog.WriteEntry("EDCAgent", "EDCClient disconnect", EventLogEntryType.Information);
                     break;
                     //throw new Exception("Disconnect");
                 }
@@ -152,6 +167,7 @@ namespace EDCServer
                             clientStream.Write(send_buf, 0, send_buf.Length);
                             //clientStream.Write(send_buf, 0, 0);
                             clientStream.Flush();
+                            EventLog.WriteEntry("EDCAgent", "Client thread send:" + send_str, EventLogEntryType.Information);
                             break;
                         case C.kSyncEDCCmd:
                             send_str = get_edc_list(cmd_tokens);
@@ -160,6 +176,7 @@ namespace EDCServer
                             clientStream.Write(send_buf, 0, send_buf.Length);
                             //clientStream.Write(send_buf, 0, 0);
                             clientStream.Flush();
+                            EventLog.WriteEntry("EDCAgent", "Client thread send:" + send_str, EventLogEntryType.Information);
                             break;
                         case C.kSyncProjCmd:
                             send_str = get_proj_list(cmd_tokens);
@@ -168,6 +185,7 @@ namespace EDCServer
                             clientStream.Write(send_buf, 0, send_buf.Length);
                             //clientStream.Write(send_buf, 0, 0);
                             clientStream.Flush();
+                            EventLog.WriteEntry("EDCAgent", "Client thread send:" + send_str, EventLogEntryType.Information);
                             break;
                         case C.kSyncLogCmd:
                             sync_edc_log(command);
@@ -191,7 +209,7 @@ namespace EDCServer
 
             tcpClient.Close();
             connectClient.Remove(tcpClient);
-            System.Diagnostics.Debug.WriteLine("Stop read from client" + client.GetHashCode());
+            EventLog.WriteEntry("EDCAgent", "Client thread terminated", EventLogEntryType.Information);
         }
 
         private string get_employee_list(string[] plist)
@@ -409,6 +427,7 @@ namespace EDCServer
                     {
                         System.Diagnostics.Debug.WriteLine("Write log to DB error");
                     }
+                    EventLog.WriteEntry("EDCAgent", "Client thread insert EDC_log: " + recv_list[i], EventLogEntryType.SuccessAudit);
 
                     if (edc_log.type == "CARD")
                     {
@@ -423,6 +442,7 @@ namespace EDCServer
                             {
                                 System.Diagnostics.Debug.WriteLine("Write PQCardInfo to DB error");
                             }
+                            EventLog.WriteEntry("EDCAgent", "Client thread insert into PQCardInfo: " + recv_list[i], EventLogEntryType.SuccessAudit);
                         }
                     }
                     else if (edc_log.type == "PRINT" || edc_log.type == "COPY")
@@ -440,6 +460,8 @@ namespace EDCServer
                                 System.Diagnostics.Debug.WriteLine("Write CopyCount to DB error");
                                 MessageBox.Show("Write CopyCount to DB error");
                             }
+
+                            EventLog.WriteEntry("EDCAgent", "Client thread insert into CopyCount: " + recv_list[i], EventLogEntryType.SuccessAudit);
                         }
                     }
                 }
