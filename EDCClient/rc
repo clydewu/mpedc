@@ -17,4 +17,4 @@ ln -s /home/work/gconv/ /lib/
 cd /home/test/
 ./edc_show_ip.sh ./edc_network.conf
 sleep 5
-#./test.out &
+./test.out &
