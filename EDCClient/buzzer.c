@@ -13,7 +13,7 @@
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
-
+#include <sys/stat.h>
 
 #include "matrix500.h"
 #include "lib/libmpedc.h"
@@ -43,56 +43,72 @@
 // Wht use macro here?
 // Cause of exp should be combine to the 2nd argument of frpintf
 // directly (Instead of be a %s)
-#define log0(p_ctx, lv, mod_name, func_name, exp) \
-{                                                 \
-    if (lv <= p_ctx->log_level)                   \
-    {                                             \
-        log_lock(p_ctx);                          \
-        fprintf(stderr, "%s[%s]%s: %s: " exp "\n",\
-                get_log_YmdHMS( ),                \
-                mod_name,                         \
-                func_name,                        \
-                LOGLEVLE2STR[lv]                  \
-        );                                        \
-        log_unlock(p_ctx);                        \
-    }                                             \
-}                                                 \
+// And please always note THIS IS A MARCO, NOT FUNCTION!!!
+#define log0(lv, mod_name, func_name, exp)          \
+{                                                   \
+    if (lv <= g_log_level)                          \
+    {                                               \
+        log_lock();                                 \
+        fprintf(stderr, "%s [%s][%s] %s: " exp "\n",\
+                get_cur_YmdHMS( ),                  \
+                mod_name,                           \
+                LOGLEVLE2STR[lv],                   \
+                func_name                           \
+        );                                          \
+        log_unlock();                               \
+    }                                               \
+}                                                   \
 
 
-#define log1(p_ctx, lv, mod_name, func_name, exp, p1) \
-{                                                 \
-    if (lv <= p_ctx->log_level)                   \
-    {                                             \
-        log_lock(&p_ctx->log_ctx);                          \
-        fprintf(stderr, "%s[%s]%s: %s: " exp "\n",\
-                get_log_YmdHMS( ),                \
-                mod_name,                         \
-                func_name,                        \
-                LOGLEVLE2STR[lv],                 \
-                p1                                \
-        );                                        \
-        log_unlock(&p_ctx->log_ctx);                        \
-    }                                             \
-}                                                 \
+#define log1(lv, mod_name, func_name, exp, p1)      \
+{                                                   \
+    if (lv <= g_log_level)                          \
+    {                                               \
+        log_lock();                                 \
+        fprintf(stderr, "%s [%s][%s] %s: " exp "\n",\
+                get_cur_YmdHMS( ),                  \
+                mod_name,                           \
+                LOGLEVLE2STR[lv],                   \
+                func_name,                          \
+                p1                                  \
+        );                                          \
+        log_unlock();                               \
+    }                                               \
+}                                                   \
 
-#define log2(p_ctx, lv, mod_name, func_name, exp, p1, p2) \
-{                                                 \
-    if (lv <= p_ctx->log_level)                   \
-    {                                             \
-        log_lock(&p_ctx->log_ctx);                          \
-        fprintf(stderr, "%s[%s]%s: %s: " exp "\n",\
-                get_log_YmdHMS( ),                \
-                mod_name,                         \
-                func_name,                        \
-                LOGLEVLE2STR[lv],                 \
-                p1, p2                            \
-        );                                        \
-        log_unlock(&p_ctx->log_ctx);                        \
-    }                                             \
-}                                                 \
+#define log2(lv, mod_name, func_name, exp, p1, p2)  \
+{                                                   \
+    if (lv <= g_log_level)                          \
+    {                                               \
+        log_lock();                                 \
+        fprintf(stderr, "%s [%s][%s] %s: " exp "\n",\
+                get_cur_YmdHMS( ),                  \
+                mod_name,                           \
+                LOGLEVLE2STR[lv],                   \
+                func_name,                          \
+                p1, p2                              \
+        );                                          \
+        log_unlock();                               \
+    }                                               \
+}                                                   \
 
-const char g_mod[] = "EDCClient";
+#define log3(lv, mod_name, func_name, exp, p1, p2, p3)\
+{                                                   \
+    if (lv <= g_log_level)                          \
+    {                                               \
+        log_lock();                                 \
+        fprintf(stderr, "%s [%s][%s] %s: " exp "\n",\
+                get_cur_YmdHMS( ),                  \
+                mod_name,                           \
+                LOGLEVLE2STR[lv],                   \
+                func_name,                          \
+                p1, p2, p3                          \
+        );                                          \
+        log_unlock();                               \
+    }                                               \
+}                                                   \
 
+const char kModName[] = "EDCClient";
 const char kEmpListFile[] = "./employee.list";
 const char kEDCListFile[] = "./edc.list";
 const char kProjListFile[] = "./projects.list";
@@ -101,6 +117,8 @@ const char kServerIni[] = "./edc_setup.conf";
 const char kNetworkIni[] = "./edc_network.conf";
 const char kSetupIpCmd[] = "./edc_net_setup.sh ./edc_network.conf";
 const char kTempFileSuffix[] = ".tmp";
+const char kLogFolder[] = "./baklog/";
+const char kLogSuffix[] = "log";
 const int kMaxEmpListSize = MAX_EMP_LIST_SIZE;
 const int kMaxEDCListSize = MAX_EDC_LIST_SIZE;
 const int kMaxProjListSize = MAX_PROJECT_LEN;
@@ -115,7 +133,6 @@ const int kScreenWidth = 128;
 const int kScreenHeight = 64;
 const int kMaxScreenLine = 4;
 const int kMaxLineWord = 16;
-const char kTimeFormat[] = "%m/%d %R";
 const int kMicroPerSecond = 1000000;
 const int kMaxCardSNLen = MAX_CARD_SN_LEN;
 const int kMaxBufferlen = 4096;
@@ -137,6 +154,10 @@ const int kASCIILastVisiable = 127;
 const int kASCII_zero = 48;
 const int kASCII_nine = 57;
 const int kMaxFailLimit = 10;
+const int kMaxLogLen = 8192;
+const int kMaxLogFileSize = 1024 * 1024 * 256;
+const char kYmdHMS[] = "%.4d-%.2d-%.2d %.2d:%.2d:%.2d";
+const char kYmdHMS_NS[] = "%.4d%.2d%.2d%.2d%.2d%.2d";
 
 const float kWaitSecScanKey = 0.2;
 const float kWaitSecReadComPort = 0.1;
@@ -252,14 +273,6 @@ const char LOGLEVLE2STR[5][MAX_LOG_LEVEL_LEN] = {
     "INFO",
     "DEBUG"
 };
-
-typedef struct _log
-{
-    int log_level;
-    pthread_mutex_t log_mutex;
-    int fd_stderr;
-    int log_pipe[2];
-} LOG_CTX, *PLOG_CTX;
 
 enum RET{
         RET_SUCCESS = 0,           // жие\бC
@@ -384,7 +397,6 @@ typedef struct _edc_ctx
     PLKPCONTEXT     lkp_ctx;
     COM_CTX         com_ctx;
     KEY_CTX         key_ctx;
-    LOG_CTX         log_ctx;
 
     int             backlight_flag;
 
@@ -452,7 +464,7 @@ int setup_state(EDC_CTX*);
 int passwd_state(EDC_CTX*);
 
 // EDC Utilities
-int init(EDC_CTX*, const char*);
+int init(EDC_CTX *p_ctx);
 void quit(EDC_CTX*);
 int get_current_time_r(struct tm* p_time_info);
 int show_datetime(EDC_CTX* p_ctx, struct tm* p_time_info);
@@ -480,7 +492,8 @@ int get_str_before_char(const char*, const char, char*, int);
 // EDC log Utilities
 int sync_log(EDC_CTX*);
 int save_log_to_local(EDC_CTX*, const char*);
-char* get_cur_YmdHMS_r(char*, int);
+char* get_cur_YmdHMS(void);
+char* get_cur_YmdHMS_r(char *buf, int buf_len, int no_seperate);
 int append_edc_log(EDC_CTX*, const EDC_LOG_TYPE, const char*);
 int gen_cost_log(EDC_CTX*, const EDC_LOG_TYPE, PRINTERTYPE*);
 
@@ -505,49 +518,53 @@ int get_remote_list(EDC_CTX*,const char*,const char*, pthread_mutex_t*);
 int stop_sync_thr(EDC_CTX*);
 void sync_thr_func(void *ctx);
 void sync_log_thr_func(void *ctx);
-void log_thr_func(void *ctx);
+void log_thr_func();
 
 // Log Utilities
-int init_log(LOG_CTX* p_ctx, LOG_LEVEL level);
+int init_log(LOG_LEVEL level);
 char* get_log_YmdHMS(void);
-int log_lock(LOG_CTX* p_ctx);
-int log_unlock(LOG_CTX* p_ctx);
+int log_lock();
+int log_unlock();
+static pthread_mutex_t* get_log_mutex();
+int get_file_size(const char* file_name);
 
+
+//Global var for log
+LOG_LEVEL g_log_level = DEBUG;
+int g_log_pipe[2];
+int g_log_fd;
 
 int main(void)
 {
     int ret;
     int ret_code = kSuccess;
     EDC_CTX ctx;
-    //EDC_CTX* p_ctx = &ctx;
 
-    if (init(&ctx, kDefINIFile))
+    if (init(&ctx))
     {
-        fprintf(stderr, "Can not connect to the device.\n");
+        log0(FATAL, kModName, __func__, "Can not connect to the device.");
         goto INIT_FAIL;
     }
 
     if (set_led(kLEDNone) != kSuccess)
     {
-        fprintf(stderr, "Set LED down failure.\n");
+        log0(FATAL, kModName, __func__, "Set LED down failure.");
         goto INIT_FAIL;
     }
 
     if(lcd_clean_scr(ctx.lkp_ctx) != kSuccess)
     {
-        fprintf(stderr, "Can not clean screen.\n");
+        log0(FATAL, kModName, __func__, "Can not clean screen.");
         goto INIT_FAIL;
     }
 
     if(lcd_clean(ctx.lkp_ctx) != kSuccess)
     {
-        fprintf(stderr, "Can not clean screen buffer.\n");
+        log0(FATAL, kModName, __func__, "Can not clean screen buffer.");
         goto INIT_FAIL;
     }
 
-    //log0(p_ctx.log_ctx, INFO, g_mod, __func__, "Start main loop");
-    fprintf(stderr, "Start main loop\n");
-    // Main Loop
+    log0(INFO, kModName, __func__, "Start main loop");
     while (kTrue)
     {
         switch (ctx.state)
@@ -571,7 +588,7 @@ int main(void)
             ret = passwd_state(&ctx);
             break;
         default:
-            fprintf(stderr, "Never ever be here\n");
+            log0(FATAL, kModName, __func__, "Never ever be here");
             ret = kFailure;
             break;
         }
@@ -585,20 +602,20 @@ INIT_FAIL:
     ret_code = kFailure;
     if (show_line(&ctx, 1, STR_ERROR) != kSuccess)
     {
-        fprintf(stderr, "Can not print error msg to screen.\n");
+        log0(ERROR, kModName, __func__, "Can not print error msg to screen.");
     }
 
     if (set_led(kLEDNone) != kSuccess)
     {
-        fprintf(stderr, "Can not set LED.\n");
+        log0(ERROR, kModName, __func__, "Can not set LED.");
     }
 
     if(lcd_clean_scr(ctx.lkp_ctx) != kSuccess)
     {
-        fprintf(stderr, "Can not clean screen.\n");
+        log0(ERROR, kModName, __func__, "Can not clean screen.");
     }
     quit(&ctx);
-    fprintf(stderr, "Program terminate.\n");
+    log0(INFO, kModName, __func__, "Program terminate.");
     return ret_code;
 }
 
@@ -606,32 +623,31 @@ int stop_sync_thr(EDC_CTX* p_ctx)
 {
     if (!p_ctx)
     {
-        fprintf(stderr, "Parameter Fail!\n");
+        log0(ERROR, kModName, __func__, "Parameter Fail!");
         return kFailure;
     }
 
     if (pthread_cancel(p_ctx->sync_list_thr) != kSuccess)
     {
-        fprintf(stderr, "Can not join sync_list thread.\n");
+        log0(ERROR, kModName, __func__, "Can not join sync_list thread.");
         return kFailure;
     }
 
     if (pthread_cancel(p_ctx->sync_log_thr) != kSuccess)
     {
-        fprintf(stderr, "Can not join sync_list thread.\n");
+        log0(ERROR, kModName, __func__, "Can not join sync_list thread.");
         return kFailure;
     }
 
-
     if (pthread_join(p_ctx->sync_list_thr, NULL) != kSuccess)
     {
-        fprintf(stderr, "Can not join sync_list thread.\n");
+        log0(ERROR, kModName, __func__, "Can not join sync_list thread.");
         return kFailure;
     }
 
     if (pthread_join(p_ctx->sync_log_thr, NULL) != kSuccess)
     {
-        fprintf(stderr, "Can not join sync_log thread.\n");
+        log0(ERROR, kModName, __func__, "Can not join sync_log thread.");
         return kFailure;
     }
 
@@ -644,7 +660,7 @@ void sync_list_thr_func(void* ctx)
 
     if (!p_ctx)
     {
-        fprintf(stderr, "Parameter Fail!\n");
+        log0(ERROR, kModName, __func__, "Parameter Fail!");
         return ;
     }
 
@@ -653,26 +669,27 @@ void sync_list_thr_func(void* ctx)
     while (kTrue)
     {
         sleep(kSyncListInterval);
-        //sleep(3);
         pthread_testcancel();
 
         if (p_ctx->connected)
         {
+            log0(INFO, kModName, __func__, "Sync lists from Server");
             if (sync_lists(p_ctx) != kSuccess)
             {
-                fprintf(stderr, "Sync lists from server fail!\n");
+                log0(ERROR, kModName, __func__, "Sync lists from server fail!");
             }
 
+            log0(INFO, kModName, __func__, "Load downloads lists");
             if (load_local_lists(p_ctx) != kSuccess)
             {
-                fprintf(stderr, "Load lists failure!\n");
+                log0(ERROR, kModName, __func__, "Load lists failure!");
                 //TODO should terminate program.
             }
             continue;
         }
         else
         {
-            fprintf(stderr, "Server is disconnected, can't sync lists!\n");
+            log0(ERROR, kModName, __func__, "Server is disconnected, can't sync lists!");
         }
     }
 }
@@ -683,7 +700,7 @@ int get_press_key(EDC_CTX* p_ctx, unsigned char* key)
 
     if (!p_ctx || !key)
     {
-        fprintf(stderr, "Parameter Fail!\n");
+        log0(ERROR, kModName, __func__, "Parameter Fail!");
         return kFailure;
     }
 
@@ -692,7 +709,7 @@ int get_press_key(EDC_CTX* p_ctx, unsigned char* key)
 
     if (pthread_mutex_lock(&p_ctx->lkp_ctx_mutex))
     {
-        fprintf(stderr, "Lock lkp_ctx mutex failure!\n");
+        log0(ERROR, kModName, __func__, "Lock lkp_ctx mutex failure!");
         return kFailure;
     }
 
@@ -700,7 +717,7 @@ int get_press_key(EDC_CTX* p_ctx, unsigned char* key)
 
     if (pthread_mutex_unlock(&p_ctx->lkp_ctx_mutex))
     {
-        fprintf(stderr, "Unlock lkp_ctx mutex failure!\n");
+        log0(ERROR, kModName, __func__, "Unlock lkp_ctx mutex failure!");
         return kFailure;
     }
 
@@ -715,7 +732,7 @@ void sync_log_thr_func(void *ctx)
 
     if (!p_ctx)
     {
-        fprintf(stderr, "Parameter Fail!\n");
+        log0(ERROR, kModName, __func__, "Parameter Fail!");
         return ;
     }
 
@@ -728,10 +745,11 @@ void sync_log_thr_func(void *ctx)
 
         if (p_ctx->connected)
         {
+            log0(INFO, kModName, __func__, "Sync EDC Log to server");
             ret = sync_log(p_ctx);
             if (ret != kSuccess)
             {
-                fprintf(stderr, "Sync edc log to server fail!\n");
+                log0(ERROR, kModName, __func__, "Sync EDC log to server fail!");
                 sync_success = kFalse;
             }
             else
@@ -742,16 +760,17 @@ void sync_log_thr_func(void *ctx)
         else
         {
             // Check connected and reconnect here, due to the interval of this thread is most short
+            log0(INFO, kModName, __func__, "Server is disconnected, re-connect to server");
             if (connect_server(p_ctx) != kSuccess)
             {
-                fprintf(stderr, "Re-Connect to server failure\n");
+                log0(ERROR, kModName, __func__, "Re-Connect to server failure");
                 sync_success = kFalse;
             }
             else
             {
                 if (sync_log(p_ctx) != kSuccess)
                 {
-                    fprintf(stderr, "Sync edc log to server fail!\n");
+                    log0(ERROR, kModName, __func__, "Sync edc log to server fail!");
                     sync_success = kFalse;
                 }
                 else
@@ -765,7 +784,7 @@ void sync_log_thr_func(void *ctx)
         {
             if (save_log_to_local(p_ctx, kEDCLogFile) == kFailure)
             {
-                fprintf(stderr, "Save EDC log to file failure!\n");
+                log0(ERROR, kModName, __func__, "Save EDC log to file failure!");
                 // TODO program should dead
             }
         }
@@ -778,25 +797,25 @@ int append_edc_log(EDC_CTX *p_ctx, const EDC_LOG_TYPE type, const char *content)
 
     if (!p_ctx || !content)
     {
-        fprintf(stderr, "Parameter Fail!\n");
+        log0(ERROR, kModName, __func__, "Parameter Fail!");
         return kFailure;
     }
 
-    if (get_cur_YmdHMS_r(cur_date, kMaxYmdHMSLen + 1) == NULL)
+    if (get_cur_YmdHMS_r(cur_date, kMaxYmdHMSLen + 1, kFalse) == NULL)
     {
-        fprintf(stderr, "Get current datetime fail\n");
+        log0(ERROR, kModName, __func__, "Get current datetime fail");
         return kFailure;
     }
 
     if (pthread_mutex_lock(&p_ctx->edc_log_mutex))
     {
-        fprintf(stderr, "Lock EDC log mutex failure!\n");
+        log0(ERROR, kModName, __func__, "Lock EDC log mutex failure!");
         return kFailure;
     }
 
     if (p_ctx->edc_log_num >= kMaxMemEDCLog)
     {
-        fprintf(stderr, "Temporary space of EDC log is not enought\n");
+        log0(ERROR, kModName, __func__, "Temporary space of EDC log is not enought");
         return kFailure;
     }
     else
@@ -809,7 +828,7 @@ int append_edc_log(EDC_CTX *p_ctx, const EDC_LOG_TYPE type, const char *content)
                     cur_date,
                     content) < 0)
         {
-            fprintf(stderr, "Make log string failure\n");
+            log0(ERROR, kModName, __func__, "Make log string failure");
             return kFailure;
         }
         p_ctx->edc_log_num++;
@@ -817,21 +836,38 @@ int append_edc_log(EDC_CTX *p_ctx, const EDC_LOG_TYPE type, const char *content)
 
     if (pthread_mutex_unlock(&p_ctx->edc_log_mutex))
     {
-        fprintf(stderr, "Unlock EDC log mutex failure!\n");
+        log0(ERROR, kModName, __func__, "Unlock EDC log mutex failure!");
         return kFailure;
     }
 
     return 0;
 }
 
-char* get_cur_YmdHMS_r(char *buf, int buf_len)
+char* get_cur_YmdHMS(void)
+{
+    struct tm time_info = { 0 };
+    static char cur_date[21];
+    /* init */
+    memset(cur_date, 0, 21);
+    get_current_time_r(&time_info);
+    snprintf(cur_date, sizeof(cur_date), kYmdHMS,
+            time_info.tm_year+1900,
+            time_info.tm_mon+1,
+            time_info.tm_mday,
+            time_info.tm_hour,
+            time_info.tm_min,
+            time_info.tm_sec);
+    return cur_date;
+}
+
+char* get_cur_YmdHMS_r(char *buf, int buf_len, int no_seperate)
 {
     time_t time_cur;
     struct tm local_time = {0};
 
     if (!buf)
     {
-        fprintf(stderr, "Parameter Fail!\n");
+        log0(ERROR, kModName, __func__, "Parameter Fail!");
         return NULL;
     }
 
@@ -840,7 +876,7 @@ char* get_cur_YmdHMS_r(char *buf, int buf_len)
     time_cur = time(NULL);
 
     localtime_r(&time_cur, &local_time);
-    snprintf(buf, buf_len, "%.4d-%.2d-%.2d %.2d:%.2d:%.2d",
+    snprintf(buf, buf_len, (no_seperate)?kYmdHMS_NS:kYmdHMS,
             local_time.tm_year+1900,
             local_time.tm_mon+1,
             local_time.tm_mday,
@@ -851,6 +887,7 @@ char* get_cur_YmdHMS_r(char *buf, int buf_len)
     return buf;
 }
 
+
 int save_log_to_local(EDC_CTX *p_ctx, const char *log_tmp_file)
 {
     FILE *fp_log;
@@ -858,19 +895,19 @@ int save_log_to_local(EDC_CTX *p_ctx, const char *log_tmp_file)
 
     if (!p_ctx || !log_tmp_file)
     {
-        fprintf(stderr, "Parameter Fail!\n");
+        log0(ERROR, kModName, __func__, "Parameter Fail!");
         return kFailure;
     }
 
     if(!(fp_log = fopen(log_tmp_file, "a")))
     {
-        fprintf(stderr, "Can not open log temp file.\n");
+        log0(ERROR, kModName, __func__, "Can not open log temp file.");
         return kFailure;
     }
 
     if (pthread_mutex_lock(&p_ctx->edc_log_mutex))
     {
-        fprintf(stderr, "Lock EDC log mutex failure!\n");
+        log0(ERROR, kModName, __func__, "Lock EDC log mutex failure!");
         fclose(fp_log);
         return kFailure;
     }
@@ -880,7 +917,7 @@ int save_log_to_local(EDC_CTX *p_ctx, const char *log_tmp_file)
     {
         if (fprintf(fp_log, "%s\n", p_ctx->edc_tmp_log[i]) <= 0)
         {
-            fprintf(stderr, "Write to temp log file failure\n");
+            log0(ERROR, kModName, __func__, "Write to temp log file failure");
             pthread_mutex_unlock(&p_ctx->edc_log_mutex);
             fclose(fp_log);
             return kFailure;
@@ -892,7 +929,7 @@ int save_log_to_local(EDC_CTX *p_ctx, const char *log_tmp_file)
 
     if (pthread_mutex_unlock(&p_ctx->edc_log_mutex))
     {
-        fprintf(stderr, "Unlock EDC log mutex failure!\n");
+        log0(ERROR, kModName, __func__, "Unlock EDC log mutex failure!");
         fclose(fp_log);
         return kFailure;
     }
@@ -917,7 +954,7 @@ int sync_log(EDC_CTX *p_ctx)
 
     if (!p_ctx)
     {
-        fprintf(stderr, "Parameter Fail!\n");
+        log0(ERROR, kModName, __func__, "Parameter Fail!");
         return kFailure;
     }
     memset(line, 0, kMaxEDCLogLen);
@@ -926,15 +963,16 @@ int sync_log(EDC_CTX *p_ctx)
     //Check local file first
     if (access(kEDCLogFile, F_OK) == kFailure)
     {    
-        //fprintf(stderr, "CLD: EDC log file is not exist.\n");
+        //log0(DEBUG, kModName, __func__, "EDC log file is not exist.");
     }
     else
     {
+        log0(INFO, kModName, __func__, "Send EDC log which in file to server.");
         buf_size = sizeof(log_buf);
         buf_ptr = log_buf;
         if (!(fp_log = fopen(kEDCLogFile, "r")))
         {
-            fprintf(stderr, "Can not open EDC log file.\n");
+            log0(ERROR, kModName, __func__, "Can not open EDC log file.");
             return kFailure;
         }
 
@@ -955,7 +993,7 @@ int sync_log(EDC_CTX *p_ctx)
                 // If buffer is not enough, send current log
                 if (sock_write(p_ctx->server_fd, log_buf, buf_ptr - log_buf) != buf_ptr - log_buf)
                 {
-                    fprintf(stderr, "Send log to server fail.\n");
+                    log0(ERROR, kModName, __func__, "Send log to server fail.");
                     p_ctx->connected = kFalse;
                     fclose(fp_log);
                     return kFailure;
@@ -977,14 +1015,14 @@ int sync_log(EDC_CTX *p_ctx)
 
         if (sock_write(p_ctx->server_fd, log_buf, buf_ptr - log_buf) != buf_ptr - log_buf)
         {
-            fprintf(stderr, "Send log to server fail.\n");
+            log0(ERROR, kModName, __func__, "Send log to server fail.");
             p_ctx->connected = kFalse;
             return kFailure;
         }
 
         if (unlink(kEDCLogFile) != kSuccess)
         {
-            fprintf(stderr, "Delete sended EDC log file failure!\n");
+            log0(ERROR, kModName, __func__, "Delete sended EDC log file failure!");
             return kFailure;
         }
     }
@@ -997,9 +1035,10 @@ int sync_log(EDC_CTX *p_ctx)
     buf_ptr += line_len;
     if (p_ctx->edc_log_num > 0)
     {
+        log0(INFO, kModName, __func__, "Send EDC log which in memory to server.");
         if (pthread_mutex_lock(&p_ctx->edc_log_mutex))
         {
-            fprintf(stderr, "Lock EDC log mutex failure!\n");
+            log0(ERROR, kModName, __func__, "Lock EDC log mutex failure!");
             return kFailure;
         }
 
@@ -1018,7 +1057,7 @@ int sync_log(EDC_CTX *p_ctx)
                 // If buffer is not enough, send current log
                 if (sock_write(p_ctx->server_fd, log_buf, buf_ptr - log_buf) != buf_ptr - log_buf)
                 {
-                    fprintf(stderr, "Send memory log to server fail.\n");
+                    log0(ERROR, kModName, __func__, "Send memory log to server fail.");
                     p_ctx->connected = kFalse;
                     pthread_mutex_unlock(&p_ctx->edc_log_mutex);
                     return kFailure;
@@ -1049,7 +1088,7 @@ int sync_log(EDC_CTX *p_ctx)
 
         if (pthread_mutex_unlock(&p_ctx->edc_log_mutex))
         {
-            fprintf(stderr, "Unlock EDC log mutex failure!\n");
+            log0(ERROR, kModName, __func__, "Unlock EDC log mutex failure!");
             return kFailure;
         }
     }
@@ -1057,11 +1096,18 @@ int sync_log(EDC_CTX *p_ctx)
     return kSuccess;
 }
 
-int init(EDC_CTX *p_ctx, const char* com_ini_file)
+int init(EDC_CTX *p_ctx)
 {
-    if (!p_ctx || !com_ini_file)
+    if (!p_ctx)
     {
-        fprintf(stderr, "Parameter Fail!\n");
+        log0(ERROR, kModName, __func__, "Parameter Fail!");
+        return kFailure;
+    }
+
+    //log1(INFO, kModName, __func__, "Initialize log setup: %s", LOGLEVLE2STR[INFO]);
+    if (init_log(INFO) != kSuccess)
+    {
+        log0(ERROR, kModName, __func__, "Can not create log ctx.");
         return kFailure;
     }
 
@@ -1069,111 +1115,117 @@ int init(EDC_CTX *p_ctx, const char* com_ini_file)
     p_ctx->connected = kFalse;
     memset(p_ctx->project_code, 0, kMaxProjectCodeLen + 1);
 
+    log1(INFO, kModName, __func__, "Load server setup: %s", kServerIni);
     if (load_server_set(p_ctx, kServerIni) != kSuccess)
     {
-        fprintf(stderr, "Load server setup failure.\n");
+        log0(ERROR, kModName, __func__, "Load server setup failure.");
         return kFailure;
     }
 
-    if (init_log(&p_ctx->log_ctx, INFO) != kSuccess)
-    {
-        fprintf(stderr, "Can not create log ctx.\n");
-        return kFailure;
-    }
 
+    log0(INFO, kModName, __func__, "Initialize mutesies.");
     if (pthread_mutex_init(&(p_ctx->emp_mutex), NULL) != kSuccess)
     {
-        fprintf(stderr, "Can not create employee mutex.\n");
+        log0(ERROR, kModName, __func__, "Can not create employee mutex.");
         return kFailure;
     }
 
     if (pthread_mutex_init(&(p_ctx->edc_mutex), NULL) != kSuccess)
     {
-        fprintf(stderr, "Can not create edc mutex.\n");
+        log0(ERROR, kModName, __func__, "Can not create edc mutex.");
         return kFailure;
     }
 
     if (pthread_mutex_init(&(p_ctx->proj_mutex), NULL) != kSuccess)
     {
-        fprintf(stderr, "Can not create project mutex.\n");
+        log0(ERROR, kModName, __func__, "Can not create project mutex.");
         return kFailure;
     }
 
     if (pthread_mutex_init(&(p_ctx->edc_log_mutex), NULL) != kSuccess)
     {
-        fprintf(stderr, "Can not create EDC log mutex.\n");
+        log0(ERROR, kModName, __func__, "Can not create EDC log mutex.");
         return kFailure;
     }
 
     if (pthread_mutex_init(&(p_ctx->lkp_ctx_mutex), NULL) != kSuccess)
     {
-        fprintf(stderr, "Can not create lkp_ctx mutex.\n");
+        log0(ERROR, kModName, __func__, "Can not create lkp_ctx mutex.");
         return kFailure;
     }
 
+    log0(INFO, kModName, __func__, "Initialize main context");
     p_ctx->lkp_ctx = lkp_create();
     if (!p_ctx->lkp_ctx)
     {
-        fprintf(stderr, "Can not create lkp contexet.\n");
+        log0(ERROR, kModName, __func__, "Can not create lkp contexet.");
         return kFailure;
     }
 
+    log0(INFO, kModName, __func__, "Open device");
     if (device_open())
     {
-        fprintf(stderr, "Can not open device.\n");
+        log0(ERROR, kModName, __func__, "Can not open device.");
         return kFailure;
     }
     
+    log1(INFO, kModName, __func__, "Load COM port setup: %s", kDefINIFile);
     if (load_com_setting(&p_ctx->com_ctx,
-                com_ini_file) != kSuccess)
+                kDefINIFile) != kSuccess)
     {
-        fprintf(stderr, "Can not create com contexet.\n");
+        log0(ERROR, kModName, __func__, "Can not create com contexet.");
         return kFailure;
     }
 
     if (serOpenCOM(&p_ctx->com_ctx) != kSuccess) 
     {
-        fprintf(stderr, "Can't Open COM Port\n");
+        log0(ERROR, kModName, __func__, "Can't Open COM Port");
         return kFailure;
     }
 
+    log1(INFO, kModName, __func__, "Load network setup: %s", kNetworkIni);
     if (load_network_set(p_ctx, kNetworkIni) != kSuccess)
     {
-        fprintf(stderr, "Load network setup failure.\n");
+        log0(ERROR, kModName, __func__, "Load network setup failure.");
         return kFailure;
     }
 
+    log0(INFO, kModName, __func__, "Connect to EDCAgent");
     if (connect_server(p_ctx) != kSuccess)
     {
-        fprintf(stderr, "Connect to server failure,"
-                "use local files.\n");
+        log0(ERROR, kModName, __func__, "Connect to server failure,"
+                "use local files.");
     }
     else
     {
+        log0(INFO, kModName, __func__, "Sync list from EDCAgent");
         if (sync_lists(p_ctx) != kSuccess)
         {
-            fprintf(stderr, "Sync list file failure.\n");
+            log0(ERROR, kModName, __func__, "Sync list file failure.");
             return kFailure;
         }
     }
 
+    log0(INFO, kModName, __func__, "Load downloaded lists");
     if (load_local_lists(p_ctx) != kSuccess)
     {
-        fprintf(stderr, "Load lists failure!\n");
+        log0(ERROR, kModName, __func__, "Load lists failure!");
         return kFailure;
     }
 
+    log0(INFO, kModName, __func__, "Initialize thread to sync list");
     if (pthread_create(&(p_ctx->sync_list_thr), NULL,
                 (void*)sync_list_thr_func, (void*)p_ctx) != kSuccess)
     {
-        fprintf(stderr, "Create sync thread failure.\n");
+        log0(ERROR, kModName, __func__, "Create sync thread failure.");
         return kFailure;
     }
 
+    log0(INFO, kModName, __func__, "Initialize thread to sync log");
     if (pthread_create(&(p_ctx->sync_log_thr), NULL,
                 (void*)sync_log_thr_func, (void*)p_ctx) != kSuccess)
     {
-        fprintf(stderr, "Create sync thread failure.\n");
+        log0(ERROR, kModName, __func__, "Create sync thread failure.");
         return kFailure;
     }
 
@@ -1194,7 +1246,7 @@ int sync_lists(EDC_CTX *p_ctx)
 
     if (!p_ctx)
     {
-        fprintf(stderr, "Parameter Fail!\n");
+        log0(ERROR, kModName, __func__, "Parameter Fail!");
         return kFailure;
     }
 
@@ -1206,11 +1258,14 @@ int sync_lists(EDC_CTX *p_ctx)
             kProjListFile, kTempFileSuffix);
 
     // Employee list
+    log1(INFO, kModName, __func__, "Download Employee list to temp file: %s",
+            tmp_emp_file);
     if (dl_remote_list(p_ctx, kSyncEmpCmd,
                 tmp_emp_file) != kSuccess)
     {
-        fprintf(stderr, "Download Employee list failure,"
-                " use local list.\n");
+        log1(ERROR, kModName, __func__,
+            "Download Employee list to local is failure, use local list: %s",
+            tmp_emp_file);
     }
     else
     {
@@ -1218,25 +1273,30 @@ int sync_lists(EDC_CTX *p_ctx)
         if (load_employee_list(tmp_emp_list, MAX_EMP_LIST_SIZE,
                 tmp_emp_file, NULL) < 0)
         {
-            fprintf(stderr, "Downloaded employee list"
-                    " malformed, use local list\n");
+            log1(ERROR, kModName, __func__,
+                "Downloaded employee list is malformed, use local list: %s",
+                tmp_emp_file);
         }
         else
         {
             if (rename(tmp_emp_file, kEmpListFile) != kSuccess)
             {
-                fprintf(stderr, "Move employee file failure, "
-                        "use original file\n");
+                log2(ERROR, kModName, __func__,
+                    "Move temp file %s to employee file %s failure"
+                    ", use original file\n", tmp_emp_file, kEmpListFile);
             }
         }
     }
 
     // EDC list
+    log1(INFO, kModName, __func__, "Download EDC list to temp file: %s",
+            tmp_edc_file);
     if (dl_remote_list(p_ctx, kSyncEDCCmd,
                 tmp_edc_file) != kSuccess)
     {
-        fprintf(stderr, "Download EDC list failure, "
-                "use local list.\n");
+        log1(ERROR, kModName, __func__,
+            "Download EDC list to local is failure, use local list: %s",
+            tmp_edc_file);
     }
     else
     {
@@ -1244,25 +1304,30 @@ int sync_lists(EDC_CTX *p_ctx)
         if (load_edc_list(tmp_edc_list, kMaxEDCListSize,
                 tmp_edc_file, NULL) < 0)
         {
-            fprintf(stderr, "Downloaded EDC list "
-                    "malformed, use local list\n");
+            log1(ERROR, kModName, __func__,
+                "Downloaded EDC list is malformed, use local list: %s",
+                tmp_edc_file);
         }
         else
         {
             if (rename(tmp_edc_file, kEDCListFile) != kSuccess)
             {
-                fprintf(stderr, "Move EDC file failure, "
-                        "use original file\n");
+                log2(ERROR, kModName, __func__,
+                    "Move temp file %s to edc file %s failure"
+                    ", use original file\n", tmp_edc_file, kEDCListFile);
             }
         }
     }
 
     // Project list
+    log1(INFO, kModName, __func__, "Download Project list to temp file: %s",
+            tmp_proj_file);
     if (dl_remote_list(p_ctx, kSyncProjCmd,
                 tmp_proj_file) != kSuccess)
     {
-        fprintf(stderr, "Download project list failure, "
-                "use local list.\n");
+        log1(ERROR, kModName, __func__,
+            "Download Project list to local is failure, use local list: %s",
+            tmp_proj_file);
     }
     else
     {
@@ -1270,15 +1335,17 @@ int sync_lists(EDC_CTX *p_ctx)
         if (load_proj_list(tmp_proj_list, kMaxProjListSize,
                 tmp_proj_file, NULL) < 0)
         {
-            fprintf(stderr, "Downloaded project list "
-                    "malformed, use local list\n");
+            log1(ERROR, kModName, __func__,
+                "Downloaded Project list is malformed, use local list: %s",
+                tmp_proj_file);
         }
         else
         {
             if (rename(tmp_proj_file, kProjListFile) != kSuccess)
             {
-                fprintf(stderr, "Move project file failure, "
-                        "use original file\n");
+                log2(ERROR, kModName, __func__,
+                    "Move temp file %s to proj file %s failure"
+                    ", use original file\n", tmp_proj_file, kProjListFile);
             }
         }
     }
@@ -1290,7 +1357,7 @@ int load_local_lists(EDC_CTX *p_ctx)
 {
     if (!p_ctx)
     {
-        fprintf(stderr, "Parameter Fail!\n");
+        log0(ERROR, kModName, __func__, "Parameter Fail!");
         return kFailure;
     }
 
@@ -1298,7 +1365,7 @@ int load_local_lists(EDC_CTX *p_ctx)
             p_ctx->emp_list, kMaxEmpListSize,
             kEmpListFile, &p_ctx->emp_mutex)) < 0)
     {
-        fprintf(stderr, "Load Employee list failure.\n");
+        log0(ERROR, kModName, __func__, "Load Employee list failure.");
         return kFailure;
     }
 
@@ -1306,7 +1373,7 @@ int load_local_lists(EDC_CTX *p_ctx)
             p_ctx->edc_list, kMaxEDCListSize,
             kEDCListFile, &p_ctx->edc_mutex)) < 0)
     {
-        fprintf(stderr, "Load EDC list failure.\n");
+        log0(ERROR, kModName, __func__, "Load EDC list failure.");
         return kFailure;
     }
 
@@ -1314,7 +1381,7 @@ int load_local_lists(EDC_CTX *p_ctx)
             p_ctx->proj_list, kMaxProjListSize,
             kProjListFile, &p_ctx->proj_mutex)) < 0)
     {
-        fprintf(stderr, "Load project list failure.\n");
+        log0(ERROR, kModName, __func__, "Load project list failure.");
         return kFailure;
     }
 
@@ -1325,7 +1392,7 @@ void quit(EDC_CTX *p_ctx)
 {
     if (serCloseCOM(&p_ctx->com_ctx) != RET_SUCCESS)
     {
-        fprintf(stderr, "Close COM failure.\n");
+        log0(ERROR, kModName, __func__, "Close COM failure.");
     }
 
     device_close();
@@ -1349,7 +1416,7 @@ int connect_server(EDC_CTX* p_ctx)
 
     if (!p_ctx)
     {
-        fprintf(stderr, "Parameter Fail!\n");
+        log0(ERROR, kModName, __func__, "Parameter Fail!");
         return kFailure;
     }
 
@@ -1357,19 +1424,19 @@ int connect_server(EDC_CTX* p_ctx)
     addr.sin_port = htons(p_ctx->server_port);
     if ((addr.sin_addr.s_addr = inet_addr(p_ctx->server_ip)) == INADDR_NONE)
     {
-        fprintf(stderr, "Server setup error.\n");
+        log0(ERROR, kModName, __func__, "Server setup error.");
         return kFailure;
     }
 
     if ((sock = socket(AF_INET, SOCK_STREAM, 0)) < 0)
     {
-        fprintf(stderr, "Open socket error.\n");
+        log0(ERROR, kModName, __func__, "Open socket error.");
         return kFailure;
     }
 
     if (set_nonblock(sock, kTrue) != kSuccess)
     {
-        fprintf(stderr, "Set socket non-block error.\n");
+        log0(ERROR, kModName, __func__, "Set socket non-block error.");
         return kFailure;
     }
 
@@ -1377,8 +1444,9 @@ int connect_server(EDC_CTX* p_ctx)
     {
         if (errno != EINPROGRESS)
         {
-            fprintf(stderr, "Establish connect failure(%d):\
-                    %s.\n", conn_ret, strerror(errno));
+            log2(ERROR, kModName, __func__, 
+                "Establish connect failure(%d): %s",
+                conn_ret, strerror(errno));
             return kFailure;
         }
         else
@@ -1394,13 +1462,14 @@ int connect_server(EDC_CTX* p_ctx)
                         NULL, &conn_fds, NULL, &timeout);
                 if (sel_ret < 0 && errno != EINTR)
                 {
-                    fprintf(stderr, "Connect failure: %s.\n",\
-                            strerror(errno));
+                    log1(ERROR, kModName, __func__, 
+                        "Connect failure: %s",
+                        strerror(errno));
                     return kFailure;
                 }
                 else if (sel_ret == 0)
                 {
-                    fprintf(stderr, "Connect timeout.\n");
+                    log0(ERROR, kModName, __func__, "Connect timeout.");
                     return kFailure;
                 }
                 else if (FD_ISSET(sock, &conn_fds))
@@ -1410,8 +1479,9 @@ int connect_server(EDC_CTX* p_ctx)
                     if (getsockopt(sock, SOL_SOCKET, SO_ERROR,
                             (void*)&valopt, &int_size) < 0)
                     {
-                        fprintf(stderr, "Get sockopt failure\
-                            (%d): %s.\n", errno, strerror(errno));
+                        log2(ERROR, kModName, __func__, 
+                            "Get sockopt failure (%d): %s",
+                            errno, strerror(errno));
                         return kFailure;
                     }
 
@@ -1420,7 +1490,8 @@ int connect_server(EDC_CTX* p_ctx)
                         break;
                     }
 
-                    fprintf(stderr, "Connect failure, valopt:%d.\n", valopt);
+                    log1(ERROR, kModName, __func__, 
+                        "Connect failure, valopt: %d", valopt);
                     return kFailure;
                 }
             }
@@ -1430,11 +1501,11 @@ int connect_server(EDC_CTX* p_ctx)
 
     if (set_nonblock(sock, kFalse) != kSuccess)
     {
-        fprintf(stderr, "Set socket to block mode failure.\n");
+        log0(ERROR, kModName, __func__, "Set socket to block mode failure.");
         return kFailure;
     }
 
-    fprintf(stderr, "Connect to server success.\n");
+    log0(ERROR, kModName, __func__, "Connect to server success.");
     p_ctx->server_fd = sock;
     p_ctx->connected = kTrue;
 
@@ -1456,7 +1527,7 @@ int set_nonblock(int sock, int nonblock)
 
     if (flags == -1)
     {
-        fprintf(stderr, "Get flag failure.\n");
+        log0(ERROR, kModName, __func__, "Get flag failure.");
         return kFailure;
     }
 
@@ -1471,7 +1542,7 @@ int set_nonblock(int sock, int nonblock)
 
     if (fcntl(sock, F_SETFL, flags) == -1)
     {
-        fprintf(stderr, "Set flag failure.\n");
+        log0(ERROR, kModName, __func__, "Set flag failure.");
         return kFailure;
     }
 
@@ -1492,13 +1563,14 @@ int load_server_set(EDC_CTX *p_ctx, const char *ini_file)
 
     if (!ini_file)
     {
-        fprintf(stderr, "Parameter Fail!\n");
+        log0(ERROR, kModName, __func__, "Parameter Fail!");
         return kFailure;
     }
 
     if (!(fpSetting = fopen(ini_file, "r")))
     {
-        fprintf(stderr, "Can not open server ini file: %s.\n", ini_file);
+        log1(ERROR, kModName, __func__, "Can not open server ini file: %s",
+                ini_file);
         return RET_ERR_SETUP_FILE;
     }
 
@@ -1509,7 +1581,9 @@ int load_server_set(EDC_CTX *p_ctx, const char *ini_file)
         com = strtol(num_tmp, &end_ptr, 10);
         if (*end_ptr != '\0')
         {
-            fprintf(stderr, "COM setup in INI file error: %s\n", ini_file);
+            log1(ERROR, kModName, __func__,
+                "COM setup in INI file error: %s",
+                ini_file);
             return kFailure;
         }
         p_ctx->prt_con_type = com;
@@ -1522,7 +1596,7 @@ int load_server_set(EDC_CTX *p_ctx, const char *ini_file)
         port = strtol(num_tmp, &end_ptr, 10);
         if (*end_ptr != '\0')
         {
-            fprintf(stderr, "Port setup in INI file error!\n");
+            log0(ERROR, kModName, __func__, "Port setup in INI file error!");
             return kFailure;
         }
         p_ctx->server_port = port;
@@ -1535,10 +1609,14 @@ int load_server_set(EDC_CTX *p_ctx, const char *ini_file)
     }
     fclose(fpSetting);
 
-    fprintf(stderr, "Server ip: %s\n", p_ctx->server_ip);
-    fprintf(stderr, "Server port: %d\n", p_ctx->server_port);
-    fprintf(stderr, "id: %s\n", p_ctx->edc_id);
-    fprintf(stderr, "passwd: %s\n", p_ctx->fn_passwd);
+    log1(INFO, kModName, __func__, 
+            "Server ip: %s", p_ctx->server_ip);
+    log1(INFO, kModName, __func__, 
+            "Server port: %d", p_ctx->server_port);
+    log1(INFO, kModName, __func__, 
+            "id: %s", p_ctx->edc_id);
+    log1(INFO, kModName, __func__, 
+            "passwd: %s", p_ctx->fn_passwd);
 
     return kSuccess;
 }
@@ -1551,13 +1629,14 @@ int load_network_set(EDC_CTX *p_ctx, const char *ini_file)
 
     if (!ini_file)
     {
-        fprintf(stderr, "Parameter Fail!\n");
+        log0(ERROR, kModName, __func__, "Parameter Fail!");
         return kFailure;
     }
 
     if (!(fpSetting = fopen(ini_file, "r")))
     {
-        fprintf(stderr, "Can not open network ini file: %s.\n", ini_file);
+        log1(ERROR, kModName, __func__,
+                "Can not open network ini file: %s", ini_file);
         return RET_ERR_SETUP_FILE;
     }
 
@@ -1574,9 +1653,12 @@ int load_network_set(EDC_CTX *p_ctx, const char *ini_file)
     }
     fclose(fpSetting);
 
-    fprintf(stderr, "EDC ip: %s\n", p_ctx->edc_ip);
-    fprintf(stderr, "Submask: %s\n", p_ctx->submask);
-    fprintf(stderr, "Gateway: %s\n", p_ctx->gateway);
+    log1(ERROR, kModName, __func__,
+            "EDC ip: %s", p_ctx->edc_ip);
+    log1(ERROR, kModName, __func__,
+        "Submask: %s", p_ctx->submask);
+    log1(ERROR, kModName, __func__,
+        "Gateway: %s", p_ctx->gateway);
 
     return kSuccess;
 }
@@ -1595,13 +1677,13 @@ int dl_remote_list(EDC_CTX *p_ctx, const char* sync_cmd, const char* file_name)
 
     if (!p_ctx || !sync_cmd || !file_name)
     {
-        fprintf(stderr, "Parameter Fail!\n");
+        log0(ERROR, kModName, __func__, "Parameter Fail!");
         return kFailure;
     }
 
     if (!p_ctx->connected)
     {
-        fprintf(stderr, "Socket disconnect!\n");
+        log0(ERROR, kModName, __func__, "Socket disconnect!");
         return kFailure;
     }
 
@@ -1613,7 +1695,7 @@ int dl_remote_list(EDC_CTX *p_ctx, const char* sync_cmd, const char* file_name)
 
     if (sock_write(sock, send_buf, send_len) != send_len)
     {
-        fprintf(stderr, "Send request of lists to server fail.\n");
+        log0(ERROR, kModName, __func__, "Send request of lists to server fail.");
         p_ctx->connected = kFalse;
         return kFailure;
     }
@@ -1623,20 +1705,20 @@ int dl_remote_list(EDC_CTX *p_ctx, const char* sync_cmd, const char* file_name)
     if ((total_recv = sock_read(sock,
             list_buf, kMaxEmpListBuf)) < 0)
     {
-        fprintf(stderr, "Read response from server fail.\n");
+        log0(ERROR, kModName, __func__, "Read response from server fail.");
         return kFailure;
     }
 
     if(!(fp_list = fopen(file_name, "w")))
     {
-        fprintf(stderr, "Can not open local temp list.\n");
+        log0(ERROR, kModName, __func__, "Can not open local temp list.");
         return kFailure;
     }
 
     int ret = fprintf(fp_list, "%s", list_buf);
     if (ret < total_recv)
     {
-        fprintf(stderr, "Write to temp list failure:%d.\n", ret);
+        log1(ERROR, kModName, __func__, "Write to temp list failure:%d", ret);
         fclose(fp_list);
         return kFailure;
     }
@@ -1658,7 +1740,7 @@ size_t sock_write(int sock, const char *buf, size_t buf_len)
     {
         if ((send_len = send(sock, ptr, nleft, 0)) < 0)
         {
-            fprintf(stderr, "Send data failure!\n");
+            log0(ERROR, kModName, __func__, "Send data failure!");
             break;
         }
 
@@ -1686,7 +1768,7 @@ size_t sock_read(int sock, char* buffer, size_t buf_len)
 
     if (!sock || !buffer || !buf_len)
     {
-        fprintf(stderr, "Parameter Fail!\n");
+        log0(ERROR, kModName, __func__, "Parameter Fail!");
         return kFailure;
     }
 
@@ -1709,13 +1791,13 @@ size_t sock_read(int sock, char* buffer, size_t buf_len)
             }
             else
             {
-                fprintf(stderr, "select failure");
+                log0(ERROR, kModName, __func__, "select failure");
                 return kFailure;
             }
         }
         else if (sel_ret == 0)
         {
-            fprintf(stderr, "Timeout\n");
+            log0(ERROR, kModName, __func__, "Timeout");
             return kFailure;
 
         }
@@ -1726,7 +1808,7 @@ size_t sock_read(int sock, char* buffer, size_t buf_len)
             if (recv_len == 0)
             {
                 // Disconnect
-                fprintf(stderr, "Server disconnect.\n");
+                log0(ERROR, kModName, __func__, "Server disconnect.");
                 return kFailure;
             }
             else if(recv_len < 0)
@@ -1736,7 +1818,7 @@ size_t sock_read(int sock, char* buffer, size_t buf_len)
                     continue;
                 }
 
-                fprintf(stderr, "Read socket failure.\n");
+                log0(ERROR, kModName, __func__, "Read socket failure.");
                 return kFailure;
             }
             else
@@ -1759,7 +1841,7 @@ size_t sock_read(int sock, char* buffer, size_t buf_len)
                 if (total_recv > buf_len - 1)
                 {
                     recv_len = total_recv - (buf_len -1);
-                    //fprintf(stderr, "List buffer too small.\n");
+                    //log0(ERROR, kModName, __func__, "List buffer too small.");
                     return kFailure;
                 }
                 strncpy(curr, recv_ptr, recv_len);
@@ -1776,7 +1858,7 @@ size_t sock_read(int sock, char* buffer, size_t buf_len)
         }
         else
         {
-            fprintf(stderr, "Should not here\n");
+            log0(ERROR, kModName, __func__, "Should not here");
             return kFailure;
         }
     }
@@ -1801,31 +1883,31 @@ int idle_state(EDC_CTX *p_ctx)
 
     if (!p_ctx)
     {
-        fprintf(stderr, "Parameter Fail!\n");
+        log0(ERROR, kModName, __func__, "Parameter Fail!");
         return kFailure;
     }
 
     if (lcd_clean_scr(p_ctx->lkp_ctx) != kSuccess)
     {
-        fprintf(stderr, "Can not clean screen.\n");
+        log0(ERROR, kModName, __func__, "Can not clean screen.");
         return kFailure;
     }
 
     if (lcd_clean(p_ctx->lkp_ctx) != kSuccess)
     {
-        fprintf(stderr, "Can not clean screen buffer.\n");
+        log0(ERROR, kModName, __func__, "Can not clean screen buffer.");
         return kFailure;
     }
 
     if (set_led(kLEDBlue) != kSuccess)
     {
-        fprintf(stderr, "Can not set LED.\n");
+        log0(ERROR, kModName, __func__, "Can not set LED.");
         return kFailure;
     }
 
     if (set_backlight(p_ctx, 0xff))
     {
-        fprintf(stderr, "Can not open backlight.\n");
+        log0(ERROR, kModName, __func__, "Can not open backlight.");
         return kFailure;
     }
 
@@ -1849,7 +1931,8 @@ int idle_state(EDC_CTX *p_ctx)
         ret = get_press_key(p_ctx, &in_key);
         if (ret < 0)
         {
-            fprintf(stderr, "Can not get keypad in idle state, ret:%d\n", ret);
+            log1(ERROR, kModName, __func__,
+                    "Can not get keypad in idle state, ret:%d", ret);
             return kFailure;
         }
         else
@@ -1880,12 +1963,11 @@ int idle_state(EDC_CTX *p_ctx)
 
                 if (set_backlight(p_ctx, 0xff))
                 {
-                    fprintf(stderr, "Can not open backlight.\n");
+                    log0(ERROR, kModName, __func__, "Can not open backlight.");
                     return kFailure;
                 }
                 backlight_epoch = 0;
                 backlight_flag = kTrue;
-                //fprintf(stderr, "project code: %s\n", p_ctx->project_code);
 
                 show_line(p_ctx, 2, p_ctx->project_code);
             }
@@ -1897,7 +1979,7 @@ int idle_state(EDC_CTX *p_ctx)
             {
                 if (set_backlight(p_ctx, 0x00))
                 {
-                    fprintf(stderr, "Can not close backlight when timeout.\n");
+                    log0(ERROR, kModName, __func__, "Can not close backlight when timeout.");
                     return kFailure;
                 }
                 p_ctx->backlight_flag = kFalse;
@@ -1918,7 +2000,7 @@ int idle_state(EDC_CTX *p_ctx)
             usleep(kMicroPerSecond * kWaitSecReadComPort);
             if (read_rfid(p_ctx) == kSuccess)
             {
-                fprintf(stderr, "Card: %s\n", p_ctx->curr_card_sn);
+                log1(ERROR, kModName, __func__, "Read Card: %s", p_ctx->curr_card_sn);
                 if (is_valid_card(p_ctx))
                 {
                     p_ctx->state = QUOTA;
@@ -1959,32 +2041,32 @@ int invalid_card_state(EDC_CTX *p_ctx)
 
     if (!p_ctx)
     {
-        fprintf(stderr, "Parameter Fail!\n");
+        log0(ERROR, kModName, __func__, "Parameter Fail!");
         return kFailure;
     }
 
     if(lcd_clean_scr(p_ctx->lkp_ctx) != kSuccess)
     {
-        fprintf(stderr, "Can not clean screen.\n");
+        log0(ERROR, kModName, __func__, "Can not clean screen.");
         return kFailure;
     }
 
     if(lcd_clean(p_ctx->lkp_ctx) != kSuccess)
     {
-        fprintf(stderr, "Can not clean screen buffer.\n");
+        log0(ERROR, kModName, __func__, "Can not clean screen buffer.");
         return kFailure;
     }
 
     if (set_led(kLEDRed) != kSuccess)
     {
-        fprintf(stderr, "Can not set LED.\n");
+        log0(ERROR, kModName, __func__, "Can not set LED.");
         return kFailure;
     }
 
     snprintf(edc_log, kMaxEDCLogLen, PTN_CARD_INVALID, p_ctx->curr_card_sn);
     if (append_edc_log(p_ctx, CARD, edc_log) != kSuccess)
     {
-        fprintf(stderr, "Append EDC log failure\n");
+        log0(ERROR, kModName, __func__, "Append EDC log failure");
         return kFailure;
     }
 
@@ -1997,7 +2079,7 @@ int invalid_card_state(EDC_CTX *p_ctx)
 
     if (set_backlight(p_ctx, 0xff))
     {
-        fprintf(stderr, "Can not set backlight.\n");
+        log0(ERROR, kModName, __func__, "Can not set backlight.");
         return kFailure;
     }
 
@@ -2041,7 +2123,7 @@ int quota_state(EDC_CTX* p_ctx)
 
     if (!p_ctx)
     {
-        fprintf(stderr, "Parameter Fail!\n");
+        log0(ERROR, kModName, __func__, "Parameter Fail!");
         return kFailure;
     }
 
@@ -2052,21 +2134,21 @@ int quota_state(EDC_CTX* p_ctx)
 
     if (set_led(kLEDGreen) != kSuccess)
     {
-        fprintf(stderr, "Can not set LED.\n");
+        log0(ERROR, kModName, __func__, "Can not set LED.");
         return kFailure;
     }
 
     // Enable all backlight
     if (set_backlight(p_ctx, 0xff))
     {
-        fprintf(stderr, "Can not open backlight in quota state.\n");
+        log0(ERROR, kModName, __func__, "Can not open backlight in quota state.");
         return kFailure;
     }
 
     snprintf(edc_log, kMaxEDCLogLen, PTN_CARD_VALID, p_ctx->curr_card_sn);
     if (append_edc_log(p_ctx, CARD, edc_log) != kSuccess)
     {
-        fprintf(stderr, "Append EDC log failure\n");
+        log0(ERROR, kModName, __func__, "Append EDC log failure");
         return kFailure;
     }
 
@@ -2074,14 +2156,16 @@ int quota_state(EDC_CTX* p_ctx)
     {
         if (ptr_select(p_ctx->prt_con_type) != kSuccess)
         {
-            fprintf(stderr, "Set COM port printer failure: COM: %d\n", p_ctx->prt_con_type);
+            log1(ERROR, kModName, __func__,
+                    "Set COM port printer failure: COM: %d\n",
+                    p_ctx->prt_con_type);
         }
     }
 
     // Init print, start to statistic
     if (ptr_count_init(p_ctx->lkp_ctx) != kSuccess)
     {
-        fprintf(stderr, "Initial print counter failure\n");
+        log0(ERROR, kModName, __func__, "Initial print counter failure");
         return kFailure;
     }
 
@@ -2103,7 +2187,7 @@ int quota_state(EDC_CTX* p_ctx)
 
     if (show_quota_info(p_ctx, curr_quota, gb, gs, cb, cs) != kSuccess)
     {
-        fprintf(stderr, "Show quota screen failure\n");
+        log0(ERROR, kModName, __func__, "Show quota screen failure");
         return kFailure;
     }
 
@@ -2114,7 +2198,8 @@ int quota_state(EDC_CTX* p_ctx)
         ret = get_press_key(p_ctx, &in_key);
         if (ret < 0)
         {
-            fprintf(stderr, "Can not get keypad in quota state, ret:%d.\n", ret);
+            log1(ERROR, kModName, __func__,
+                    "Can not get keypad in quota state, ret:%d", ret);
             return kFailure;
         }
         else
@@ -2129,7 +2214,7 @@ int quota_state(EDC_CTX* p_ctx)
 
         if (ptr_count_get(p_ctx->lkp_ctx, &ptr_counter) != kSuccess)
         {
-            fprintf(stderr, "Get print counter failure\n");
+            log0(ERROR, kModName, __func__, "Get print counter failure");
             return kFailure;
         }
 
@@ -2172,7 +2257,7 @@ int quota_state(EDC_CTX* p_ctx)
                           || !usage_same_as(&(ptr_counter.print), &continue_print_usage));
         if (status_action_flag || usage_modified_flag)
         {
-            fprintf(stderr, "----- print count -----\n");
+            log0(ERROR, kModName, __func__, "----- print count -----");
             print_printertype(&(ptr_counter.print));
             // Action
             stage = 1;
@@ -2208,7 +2293,7 @@ int quota_state(EDC_CTX* p_ctx)
             {
                 if (show_quota_info(p_ctx, curr_quota, gb, gs, cb, cs) != kSuccess)
                 {
-                    fprintf(stderr, "Show quota screen failure\n");
+                    log0(ERROR, kModName, __func__, "Show quota screen failure");
                     return kFailure;
                 }
             }
@@ -2217,12 +2302,12 @@ int quota_state(EDC_CTX* p_ctx)
         {
             if (stage == 1)
             {
-                fprintf(stderr, "Action finish.\n");
+                log0(ERROR, kModName, __func__, "Action finish.");
                 if (usage_same_as(&(ptr_counter.photocopy), &empty_usage)
                     && usage_same_as(&(ptr_counter.print), &photocopy_usage)
                     && usage_same_as(&(ptr_counter.scan), &print_usage))
                 {
-                    fprintf(stderr, "All counter are not modified.\n");
+                    log0(ERROR, kModName, __func__, "All counter are not modified.");
                     scan_flag = kTrue;
                 }
 
@@ -2252,21 +2337,21 @@ int quota_state(EDC_CTX* p_ctx)
     if (!usage_empty(&ptr_counter.photocopy)
             && gen_cost_log(p_ctx, COPY, &ptr_counter.photocopy) != kSuccess)
     {
-        fprintf(stderr, "Generate EDC log of copy failure\n");
+        log0(ERROR, kModName, __func__, "Generate EDC log of copy failure");
         return kFailure;
     }
 
     if (!usage_empty(&ptr_counter.print)
             && gen_cost_log(p_ctx, PRINT, &ptr_counter.print) != kSuccess)
     {
-        fprintf(stderr, "Generate EDC log of print failure\n");
+        log0(ERROR, kModName, __func__, "Generate EDC log of print failure");
         return kFailure;
     }
 
     if (scan_flag == kTrue
             && gen_cost_log(p_ctx, SCAN, &ptr_counter.scan) != kSuccess)
     {
-        fprintf(stderr, "Generate EDC log of scan failure\n");
+        log0(ERROR, kModName, __func__, "Generate EDC log of scan failure");
         return kFailure;
     }
 
@@ -2277,7 +2362,7 @@ int quota_state(EDC_CTX* p_ctx)
     usleep(kMicroPerSecond * kWaitSecStopPtrCount);
     if (ptr_count_stop(p_ctx->lkp_ctx) != kSuccess)
     {
-        fprintf(stderr, "Stop print counter failure\n");
+        log0(ERROR, kModName, __func__, "Stop print counter failure");
         return kFailure;
     }
 
@@ -2285,7 +2370,7 @@ int quota_state(EDC_CTX* p_ctx)
             p_ctx->curr_card_sn);
     if (append_edc_log(p_ctx, CARD, edc_log) != kSuccess)
     {
-        fprintf(stderr, "Append EDC log failure\n");
+        log0(ERROR, kModName, __func__, "Append EDC log failure");
         return kFailure;
     }
 
@@ -2302,7 +2387,7 @@ int show_quota_info(EDC_CTX *p_ctx, int quota, int gb, int gs, int cb, int cs)
 
     if (!p_ctx)
     {
-        fprintf(stderr, "Parameter Fail!\n");
+        log0(ERROR, kModName, __func__, "Parameter Fail!");
         return kFailure;
     }
 
@@ -2312,7 +2397,7 @@ int show_quota_info(EDC_CTX *p_ctx, int quota, int gb, int gs, int cb, int cs)
 
     if (left_right_str(quota_line, kMaxLineWord + 1, quota_str, p_ctx->edc_id) != kSuccess)
     {
-        fprintf(stderr, "Buffer too small\n");
+        log0(ERROR, kModName, __func__, "Buffer too small");
         return kFailure;
     }
 
@@ -2348,7 +2433,7 @@ int print_printertype(PRINTERTYPE *usage)
                 usage->u16_double_color_b[i]);
     }
 
-    fprintf(stderr, "\n");
+    log0(ERROR, kModName, __func__, "");
 
     return kSuccess;
 }
@@ -2380,7 +2465,7 @@ int count2cost(PRINTERCOUNT_V2 *ptr_counter, int paper_size_a, int paper_size_b,
 
     if (!ptr_counter || !gray_big || !gray_small || !color_big || !color_small)
     {
-        fprintf(stderr, "Parameter Fail!\n");
+        log0(ERROR, kModName, __func__, "Parameter Fail!");
         return kFailure;
     }
 
@@ -2397,7 +2482,7 @@ int count2cost(PRINTERCOUNT_V2 *ptr_counter, int paper_size_a, int paper_size_b,
         //fprintf(stderr, "- %d - \n", i);
         if (i < paper_size_a)
         {
-            //fprintf(stderr, "--- print a big ---\n");
+            //log0(ERROR, kModName, __func__, "--- print a big ---");
             *gray_big += print->u16_gray_scale_a[i] +
                 print->u16_double_gray_scale_a[i] * 2 +
                 copy->u16_gray_scale_a[i] +
@@ -2409,7 +2494,7 @@ int count2cost(PRINTERCOUNT_V2 *ptr_counter, int paper_size_a, int paper_size_b,
         }
         else
         {
-            //fprintf(stderr, "--- print a small ---\n");
+            //log0(ERROR, kModName, __func__, "--- print a small ---");
             *gray_small += print->u16_gray_scale_a[i] +
                 print->u16_double_gray_scale_a[i] * 2 +
                 copy->u16_gray_scale_a[i] +
@@ -2422,7 +2507,7 @@ int count2cost(PRINTERCOUNT_V2 *ptr_counter, int paper_size_a, int paper_size_b,
 
         if (i < paper_size_b)
         {
-            //fprintf(stderr, "--- print b small ---\n");
+            //log0(ERROR, kModName, __func__, "--- print b small ---");
             *gray_big += print->u16_gray_scale_b[i] +
                 print->u16_double_gray_scale_b[i] * 2 +
                 copy->u16_gray_scale_b[i] +
@@ -2434,7 +2519,7 @@ int count2cost(PRINTERCOUNT_V2 *ptr_counter, int paper_size_a, int paper_size_b,
         }
         else
         {
-            //fprintf(stderr, "--- print b big ---\n");
+            //log0(ERROR, kModName, __func__, "--- print b big ---");
             *gray_small += print->u16_gray_scale_b[i] +
                 print->u16_double_gray_scale_b[i] * 2 +
                 copy->u16_gray_scale_b[i] +
@@ -2456,7 +2541,7 @@ int usage_dup(PRINTERTYPE *p_src, PRINTERTYPE *p_dest)
 
     if (!p_src || ! p_dest)
     {
-        fprintf(stderr, "Parameter Fail!\n");
+        log0(ERROR, kModName, __func__, "Parameter Fail!");
         return kFailure;
     }
 
@@ -2481,7 +2566,7 @@ int usage_same_as(PRINTERTYPE *p1, PRINTERTYPE *p2)
 
     if (!p1 || ! p2)
     {
-        fprintf(stderr, "Parameter Fail!\n");
+        log0(ERROR, kModName, __func__, "Parameter Fail!");
         return kFailure;
     }
 
@@ -2509,7 +2594,7 @@ int usage_empty(PRINTERTYPE *p)
 
     if (!p)
     {
-        fprintf(stderr, "Parameter Fail!\n");
+        log0(ERROR, kModName, __func__, "Parameter Fail!");
         return kFailure;
     }
 
@@ -2544,7 +2629,7 @@ int gen_cost_log(EDC_CTX* p_ctx, const EDC_LOG_TYPE log_type, PRINTERTYPE *usage
 
     if (!p_ctx || !usage)
     {
-        fprintf(stderr, "Parameter Fail!\n");
+        log0(ERROR, kModName, __func__, "Parameter Fail!");
         return kFailure;
     }
 
@@ -2585,7 +2670,7 @@ int gen_cost_log(EDC_CTX* p_ctx, const EDC_LOG_TYPE log_type, PRINTERTYPE *usage
 
     if (append_edc_log(p_ctx, log_type, edc_log_content))
     {
-        fprintf(stderr, "Append EDC log failure\n");
+        log0(ERROR, kModName, __func__, "Append EDC log failure");
         return kFailure;
     }
 
@@ -2596,7 +2681,7 @@ int scanning_state(EDC_CTX* p_ctx)
 {
     if (!p_ctx)
     {
-        fprintf(stderr, "Parameter Fail!\n");
+        log0(ERROR, kModName, __func__, "Parameter Fail!");
         return kFailure;
     }
 
@@ -2614,19 +2699,19 @@ int passwd_state(EDC_CTX* p_ctx)
 
     if (!p_ctx)
     {
-        fprintf(stderr, "Parameter Fail!\n");
+        log0(ERROR, kModName, __func__, "Parameter Fail!");
         return kFailure;
     }
 
     if (lcd_clean_scr(p_ctx->lkp_ctx) != kSuccess)
     {
-        fprintf(stderr, "Can not clean screen.\n");
+        log0(ERROR, kModName, __func__, "Can not clean screen.");
         return kFailure;
     }
 
     if (lcd_clean(p_ctx->lkp_ctx) != kSuccess)
     {
-        fprintf(stderr, "Can not clean screen buffer.\n");
+        log0(ERROR, kModName, __func__, "Can not clean screen buffer.");
         return kFailure;
     }
 
@@ -2669,7 +2754,7 @@ int passwd_state(EDC_CTX* p_ctx)
                 // Enable all backlight
                 if (set_backlight(p_ctx, 0xff))
                 {
-                    fprintf(stderr, "Can not open backlight in idle.\n");
+                    log0(ERROR, kModName, __func__, "Can not open backlight in idle.");
                     return kFailure;
                 }
                 bl_usec = 0;
@@ -2680,7 +2765,7 @@ int passwd_state(EDC_CTX* p_ctx)
         {
             if (set_backlight(p_ctx, 0x00))
             {
-                fprintf(stderr, "Can not close backlight in idle when timeout.\n");
+                log0(ERROR, kModName, __func__, "Can not close backlight in idle when timeout.");
                 return kFailure;
             }
             bl_usec = 0;
@@ -2729,32 +2814,32 @@ int setup_state(EDC_CTX* p_ctx)
 
     if (!p_ctx)
     {
-        fprintf(stderr, "Parameter Fail!\n");
+        log0(ERROR, kModName, __func__, "Parameter Fail!");
         return kFailure;
     }
 
     if (stop_sync_thr(p_ctx) != kSuccess)
     {
-        fprintf(stderr, "Can't stop threads.\n");
+        log0(ERROR, kModName, __func__, "Can't stop threads.");
         return kFailure;
     }
 
     // Clean screen and set LED
     if(lcd_clean_scr(p_ctx->lkp_ctx) != kSuccess)
     {
-        fprintf(stderr, "Can not clean screen.\n");
+        log0(ERROR, kModName, __func__, "Can not clean screen.");
         return kFailure;
     }
 
     if(lcd_clean(p_ctx->lkp_ctx) != kSuccess)
     {
-        fprintf(stderr, "Can not clean screen buffer.\n");
+        log0(ERROR, kModName, __func__, "Can not clean screen buffer.");
         return kFailure;
     }
 
     if (set_led(kLEDBlue) != kSuccess)
     {
-        fprintf(stderr, "Can not set LED.\n");
+        log0(ERROR, kModName, __func__, "Can not set LED.");
         return kFailure;
     }
 
@@ -2950,7 +3035,8 @@ int setup_state(EDC_CTX* p_ctx)
 
         if (state_ret == kFailure)
         {
-            fprintf(stderr, "Fetch setup failure in state: %d\n", state);
+            log1(ERROR, kModName, __func__,
+                    "Fetch setup failure in state: %d", state);
             return kFailure;
         }
 
@@ -2975,7 +3061,8 @@ int setup_state(EDC_CTX* p_ctx)
             else if (state_ret == kASCIIDown)
             {
                 show_line(p_ctx, 2, STR_SETUP_WAIT);
-                fprintf(stderr, "Write to ini: %s\n", kServerIni);
+                log1(INFO, kModName, __func__,
+                        "Write to ini: %s\n", kServerIni);
                 strncpy(p_ctx->edc_id, new_edc_id, kMaxEDCIDLen+1);
                 strncpy(p_ctx->edc_ip, new_edc_ip, kMaxIPLen+1);
                 strncpy(p_ctx->submask, new_submask, kMaxIPLen+1);
@@ -2988,7 +3075,8 @@ int setup_state(EDC_CTX* p_ctx)
                 // Write back to file
                 if(!(fp_setup = fopen(kServerIni, "w")))
                 {
-                    fprintf(stderr, "Can not open %s.\n", kServerIni);
+                    log1(ERROR, kModName, __func__,
+                            "Can not open %s.", kServerIni);
                     return kFailure;
                 }
                 ret = fprintf(fp_setup, "%s=%d\n%s=%s\n%s=%d\n%s=%s\n%s=%s\n",
@@ -2999,7 +3087,8 @@ int setup_state(EDC_CTX* p_ctx)
                         kSetupStrFnPasswd, new_fn_passwd);
                 if (ret < 0)
                 {
-                    fprintf(stderr, "Write to %s failure.\n", kServerIni);
+                    log1(ERROR, kModName, __func__,
+                            "Write to %s failure", kServerIni);
                     fclose(fp_setup);
                     return kFailure;
                 }
@@ -3007,7 +3096,8 @@ int setup_state(EDC_CTX* p_ctx)
 
                 if(!(fp_network = fopen(kNetworkIni, "w")))
                 {
-                    fprintf(stderr, "Can not open %s.\n", kNetworkIni);
+                    log1(ERROR, kModName, __func__,
+                            "Can not open %s", kNetworkIni);
                     return kFailure;
                 }
                 ret = fprintf(fp_network, "%s=%s\n%s=%s\n%s=%s\n",
@@ -3016,7 +3106,8 @@ int setup_state(EDC_CTX* p_ctx)
                         kSetupGateway, new_gateway);
                 if (ret < 0)
                 {
-                    fprintf(stderr, "Write to %s failure.\n", kServerIni);
+                    log1(ERROR, kModName, __func__,
+                            "Write to %s failure", kServerIni);
                     fclose(fp_network);
                     return kFailure;
                 }
@@ -3025,23 +3116,23 @@ int setup_state(EDC_CTX* p_ctx)
                 // Re-connect to server
                 if (p_ctx->connected == kTrue)
                 {
-                    fprintf(stderr, "Disconnect from server...\n");
+                    log0(ERROR, kModName, __func__, "Disconnect from server...");
                     if (disconnect_server(p_ctx) != kSuccess)
                     {
-                        fprintf(stderr, "Disconnect from server failure.\n");
+                        log0(ERROR, kModName, __func__, "Disconnect from server failure.");
                         return kFailure;
                     }
                 }
 
                 if (system(kSetupIpCmd) != kSuccess)
                 {
-                    fprintf(stderr, "Reset network setting failure.\n");
+                    log0(ERROR, kModName, __func__, "Reset network setting failure.");
                     return kFailure;
                 }
 
                 if (connect_server(p_ctx) != kSuccess)
                 {
-                    fprintf(stderr, "Connect to server failure.\n");
+                    log0(ERROR, kModName, __func__, "Connect to server failure.");
                 }
 
                 break;
@@ -3067,14 +3158,14 @@ int setup_state(EDC_CTX* p_ctx)
     if (pthread_create(&(p_ctx->sync_list_thr), NULL,
                 (void*)sync_list_thr_func, (void*)p_ctx) != kSuccess)
     {
-        fprintf(stderr, "Create sync thread failure.\n");
+        log0(ERROR, kModName, __func__, "Create sync thread failure.");
         return kFailure;
     }
 
     if (pthread_create(&(p_ctx->sync_log_thr), NULL,
                 (void*)sync_log_thr_func, (void*)p_ctx) != kSuccess)
     {
-        fprintf(stderr, "Create sync thread failure.\n");
+        log0(ERROR, kModName, __func__, "Create sync thread failure.");
         return kFailure;
     }
 
@@ -3091,7 +3182,7 @@ int get_str_from_keypad(EDC_CTX *p_ctx, const char* prompt,
 
     if (!p_ctx || !buf)
     {
-        fprintf(stderr, "Parameter Fail!\n");
+        log0(ERROR, kModName, __func__, "Parameter Fail!");
         return kFailure;
     }
 
@@ -3104,7 +3195,7 @@ int get_str_from_keypad(EDC_CTX *p_ctx, const char* prompt,
         //catch input and update screen
         if (get_press_key(p_ctx, &in_key) < 0)
         {
-            //fprintf(stderr, "Can not get keypad.\n");
+            //log0(ERROR, kModName, __func__, "Can not get keypad.");
             return kFailure;
         }
         else if (in_key != 0)
@@ -3162,13 +3253,13 @@ int get_ipv4_from_keypad(EDC_CTX *p_ctx, const char* prompt,
 
     if (!p_ctx || !buf)
     {
-        fprintf(stderr, "Parameter Fail!\n");
+        log0(ERROR, kModName, __func__, "Parameter Fail!");
         return kFailure;
     }
 
     if (buf_len < kMaxIPLen + 1)
     {
-        fprintf(stderr, "Buffer too short for IPv4!\n");
+        log0(ERROR, kModName, __func__, "Buffer too short for IPv4!");
         return kFailure;
     }
 
@@ -3180,7 +3271,7 @@ int get_ipv4_from_keypad(EDC_CTX *p_ctx, const char* prompt,
         //catch input and update screen
         if (get_press_key(p_ctx, &in_key) < 0)
         {
-            //fprintf(stderr, "Can not get keypad.\n");
+            //log0(ERROR, kModName, __func__, "Can not get keypad.");
             return kFailure;
         }
         else if (in_key != 0)
@@ -3242,13 +3333,13 @@ int buzzer(int msec)
 {
     if (device_power(DEVICE_BUZZER_2, 1))
     {
-        fprintf(stderr, "Can't open buzzer!\n");
+        log0(ERROR, kModName, __func__, "Can't open buzzer!");
         return kFailure;
     }
     usleep(msec);
     if (device_power(DEVICE_BUZZER_2, 0))
     {
-        fprintf(stderr, "Can't close buzzer!\n");
+        log0(ERROR, kModName, __func__, "Can't close buzzer!");
         return kFailure;
     }
 
@@ -3261,7 +3352,7 @@ int get_current_time_r(struct tm* p_time_info)
 
     if (!p_time_info)
     {
-        fprintf(stderr, "Parameter Fail!\n");
+        log0(ERROR, kModName, __func__, "Parameter Fail!");
         return kFailure;
     }
 
@@ -3278,7 +3369,7 @@ int show_datetime(EDC_CTX* p_ctx, struct tm* p_time_info)
 
     if (!p_ctx)
     {
-        fprintf(stderr, "Parameter Fail!\n");
+        log0(ERROR, kModName, __func__, "Parameter Fail!");
         return kFailure;
     }
 
@@ -3290,7 +3381,7 @@ int show_datetime(EDC_CTX* p_ctx, struct tm* p_time_info)
 
     if (left_right_str(line_str, kMaxLineWord + 1, time_str, p_ctx->edc_id))
     {
-        fprintf(stderr, "EDC id is too long in line of datetime.\n");
+        log0(ERROR, kModName, __func__, "EDC id is too long in line of datetime.");
         return kFailure;
     }
 
@@ -3312,7 +3403,8 @@ int set_led(unsigned int conf)
                 break;
             }
 
-            fprintf(stderr, "Can not power on LED device: %d.\n", i + lcd_offset);
+            log1(ERROR, kModName, __func__,
+                    "Can not power on LED device: %d", i + lcd_offset);
             if (++failure_count > kMaxFailLimit)
             {
                 return kFailure;
@@ -3334,7 +3426,7 @@ int set_backlight(EDC_CTX* p_ctx, unsigned char u8_type)
 
         if (pthread_mutex_lock(&p_ctx->lkp_ctx_mutex))
         {
-            fprintf(stderr, "Lock lkp_ctx mutex failure!\n");
+            log0(ERROR, kModName, __func__, "Lock lkp_ctx mutex failure!");
             return kFailure;
         }
 
@@ -3342,7 +3434,7 @@ int set_backlight(EDC_CTX* p_ctx, unsigned char u8_type)
 
         if (pthread_mutex_unlock(&p_ctx->lkp_ctx_mutex))
         {
-            fprintf(stderr, "Unlock lkp_ctx mutex failure!\n");
+            log0(ERROR, kModName, __func__, "Unlock lkp_ctx mutex failure!");
             return kFailure;
         }
 
@@ -3351,7 +3443,8 @@ int set_backlight(EDC_CTX* p_ctx, unsigned char u8_type)
             break;
         }
 
-        fprintf(stderr, "Can not set backlight: %d.\n", u8_type);
+        log1(ERROR, kModName, __func__,
+                "Can not set backlight: %d", u8_type);
         if (++failure_count > kMaxFailLimit)
         {
             return kFailure;
@@ -3370,7 +3463,7 @@ int left_right_str(char *buf, const int buf_size, const char *left, const char *
 
     if (!buf)
     {
-        fprintf(stderr, "Parameter Fail!\n");
+        log0(ERROR, kModName, __func__, "Parameter Fail!");
         return kFailure;
     }
     ptr = buf;
@@ -3379,7 +3472,7 @@ int left_right_str(char *buf, const int buf_size, const char *left, const char *
     //fprintf(stderr, "left=%s, right=%s.\n", left, right);
     if (spaces < 0)
     {
-        fprintf(stderr, "Bufer too small\n");
+        log0(ERROR, kModName, __func__, "Bufer too small");
         return kFailure;
     }
 
@@ -3407,13 +3500,13 @@ int show_line(EDC_CTX *p_ctx, int line, const char *string)
 
     if (line > kMaxScreenLine - 1)
     {
-        fprintf(stderr, "Line exceed limited\n");
+        log0(ERROR, kModName, __func__, "Line exceed limited");
         return kFailure;
     }
 
     if (strlen(string) > kMaxLineWord)
     {
-        fprintf(stderr, "Line exceed limited\n");
+        log0(ERROR, kModName, __func__, "Line exceed limited");
         return kFailure;
     }
     
@@ -3421,7 +3514,7 @@ int show_line(EDC_CTX *p_ctx, int line, const char *string)
     {
         if (pthread_mutex_lock(&p_ctx->lkp_ctx_mutex))
         {
-            fprintf(stderr, "Lock lkp_ctx mutex failure!\n");
+            log0(ERROR, kModName, __func__, "Lock lkp_ctx mutex failure!");
             return kFailure;
         }
 
@@ -3429,14 +3522,16 @@ int show_line(EDC_CTX *p_ctx, int line, const char *string)
                 kFontHeight * line, kScreenWidth, kFontHeight);
         if (ret != 0)
         {
-            fprintf(stderr, "Clean buffer error, line=%d, ret=%d\n", line, ret);
+            log2(ERROR, kModName, __func__,
+                    "Clean buffer error, line: %d, ret: %d", line, ret);
             return kFailure;
         }
 
         ret = lcd_draw_text_16f(p_ctx->lkp_ctx, 0, kFontHeight * line, string, 0);
         if (ret != 0)
         {
-            fprintf(stderr, "Draw buffer error, line=%d, ret=%d\n", line, ret);
+            log2(ERROR, kModName, __func__,
+                    "Draw buffer error, line: %d, ret: %d", line, ret);
             return kFailure;
         }
 
@@ -3444,7 +3539,7 @@ int show_line(EDC_CTX *p_ctx, int line, const char *string)
 
         if (pthread_mutex_unlock(&p_ctx->lkp_ctx_mutex))
         {
-            fprintf(stderr, "Unlock lkp_ctx mutex failure!\n");
+            log0(ERROR, kModName, __func__, "Unlock lkp_ctx mutex failure!");
             return kFailure;
         }
 
@@ -3453,8 +3548,9 @@ int show_line(EDC_CTX *p_ctx, int line, const char *string)
             break;
         }
 
-        fprintf(stderr, "Print out LCD error, count=%d, str='%s' line=%d, ret=%d\n",
-                failure_count, string, line, ret);
+        log3(ERROR, kModName, __func__,
+                "Print out LCD error, str: '%s', line: %d, ret: %d",
+                string, line, ret);
         if (++failure_count > kMaxFailLimit)
         {
             return kFailure;
@@ -3475,7 +3571,7 @@ int read_rfid(EDC_CTX *p_ctx)
     unsigned char pcData[kMaxReadRFIDLen];
     if (!p_ctx)
     {
-        fprintf(stderr, "Parameter Fail!\n");
+        log0(ERROR, kModName, __func__, "Parameter Fail!");
         return kFailure;
     }
 
@@ -3485,7 +3581,8 @@ int read_rfid(EDC_CTX *p_ctx)
     len = serReadCOM(&p_ctx->com_ctx, pcData, kMaxReadRFIDLen);
     if (len > kMaxCardReadLen)
     {
-        fprintf(stderr, "Read from com too long: %d\n", len);
+        log1(ERROR, kModName, __func__,
+                "Read from com too long: %d", len);
         return kFailure;
     }
 
@@ -3521,7 +3618,7 @@ int is_valid_card(EDC_CTX *p_ctx)
 
     if (!p_ctx)
     {
-        fprintf(stderr, "Parameter Fail!\n");
+        log0(ERROR, kModName, __func__, "Parameter Fail!");
         return kFailure;
     }
 
@@ -3529,7 +3626,7 @@ int is_valid_card(EDC_CTX *p_ctx)
 
     if (pthread_mutex_lock(&p_ctx->emp_mutex))
     {
-        fprintf(stderr, "Lock Employee mutex failure!\n");
+        log0(ERROR, kModName, __func__, "Lock Employee mutex failure!");
         return kFailure;
     }
 
@@ -3546,7 +3643,7 @@ int is_valid_card(EDC_CTX *p_ctx)
 
     if (pthread_mutex_unlock(&p_ctx->emp_mutex))
     {
-        fprintf(stderr, "Unlock Employee mutex failure!\n");
+        log0(ERROR, kModName, __func__, "Unlock Employee mutex failure!");
         return kFailure;
     }
 
@@ -3630,7 +3727,7 @@ int get_str_before_char(const char* line, const char chr, char* dest, int dest_l
 
     if (!line || !dest)
     {
-        fprintf(stderr, "Parameter Fail!\n");
+        log0(ERROR, kModName, __func__, "Parameter Fail!");
         return kFailure;
     }
 
@@ -3642,7 +3739,7 @@ int get_str_before_char(const char* line, const char chr, char* dest, int dest_l
 
     if (dest_len < ptr - line + 1)
     {
-        fprintf(stderr, "Buffer too small.\n");
+        log0(ERROR, kModName, __func__, "Buffer too small.");
         return kFailure;
     }
 
@@ -3666,7 +3763,7 @@ int load_employee_list(EMPLOYEE_DATA *p_list, const int list_size,
 
     if (!p_list)
     {
-        fprintf(stderr, "Parameter Fail!\n");
+        log0(ERROR, kModName, __func__, "Parameter Fail!");
         return kFailure;
     }
 
@@ -3674,13 +3771,13 @@ int load_employee_list(EMPLOYEE_DATA *p_list, const int list_size,
 
     if (p_mutex && pthread_mutex_lock(p_mutex))
     {
-        fprintf(stderr, "Lock Employee mutex failure!\n");
+        log0(ERROR, kModName, __func__, "Lock Employee mutex failure!");
         return kFailure;
     }
 
     if (!(fList = fopen(file_name, "r")))
     {
-        fprintf(stderr, "Can not open ini file.\n");
+        log0(ERROR, kModName, __func__, "Can not open ini file.");
         return kFailure;
     }
 
@@ -3738,7 +3835,7 @@ int load_employee_list(EMPLOYEE_DATA *p_list, const int list_size,
 
     if (p_mutex && pthread_mutex_unlock(p_mutex))
     {
-        fprintf(stderr, "Unlock Employee mutex failure!\n");
+        log0(ERROR, kModName, __func__, "Unlock Employee mutex failure!");
         return kFailure;
     }
 
@@ -3758,10 +3855,11 @@ int load_employee_list(EMPLOYEE_DATA *p_list, const int list_size,
     return line_count;
 
 LOAD_EMP_FAIL_LINE:
-    fprintf(stderr, "Employee list malformed in line %d.\n", line_count);
+    log1(ERROR, kModName, __func__,
+            "Employee list malformed in line: %d", line_count);
     if (p_mutex && pthread_mutex_unlock(p_mutex))
     {
-        fprintf(stderr, "Unlock Employee mutex failure!\n");
+        log0(ERROR, kModName, __func__, "Unlock Employee mutex failure!");
     }
     fclose(fList);
     return kFailure;
@@ -3779,7 +3877,7 @@ int load_edc_list(EDC_DATA *p_list, const int list_size, const char *file_name, 
 
     if (!p_list)
     {
-        fprintf(stderr, "Parameter Fail!\n");
+        log0(ERROR, kModName, __func__, "Parameter Fail!");
         return kFailure;
     }
 
@@ -3787,13 +3885,13 @@ int load_edc_list(EDC_DATA *p_list, const int list_size, const char *file_name, 
 
     if (p_mutex && pthread_mutex_lock(p_mutex))
     {
-        fprintf(stderr, "Lock EDC mutex failure!\n");
+        log0(ERROR, kModName, __func__, "Lock EDC mutex failure!");
         return kFailure;
     }
 
     if (!(fList = fopen(file_name, "r")))
     {
-        fprintf(stderr, "Can not open ini file.\n");
+        log0(ERROR, kModName, __func__, "Can not open ini file.");
         return kFailure;
     }
 
@@ -3893,7 +3991,7 @@ int load_edc_list(EDC_DATA *p_list, const int list_size, const char *file_name, 
     fclose(fList);
     if (p_mutex && pthread_mutex_unlock(p_mutex))
     {
-        fprintf(stderr, "Unlock EDC mutex failure!\n");
+        log0(ERROR, kModName, __func__, "Unlock EDC mutex failure!");
         return kFailure;
     }
 
@@ -3918,10 +4016,11 @@ int load_edc_list(EDC_DATA *p_list, const int list_size, const char *file_name, 
     return line_count;
 
 LOAD_EDC_FAIL_LINE:
-    fprintf(stderr, "EDC list malformed in line %d.\n", line_count);
+    log1(ERROR, kModName, __func__,
+            "EDC list malformed in line %d", line_count);
     if (p_mutex && pthread_mutex_unlock(p_mutex))
     {
-        fprintf(stderr, "Unlock EDC mutex failure!\n");
+        log0(ERROR, kModName, __func__, "Unlock EDC mutex failure!");
     }
     fclose(fList);
     return kFailure;
@@ -3938,7 +4037,7 @@ int load_proj_list(PROJ_DATA *p_list, const int list_size, const char *file_name
 
     if (!p_list)
     {
-        fprintf(stderr, "Parameter Fail!\n");
+        log0(ERROR, kModName, __func__, "Parameter Fail!");
         return kFailure;
     }
 
@@ -3946,13 +4045,13 @@ int load_proj_list(PROJ_DATA *p_list, const int list_size, const char *file_name
 
     if (p_mutex && pthread_mutex_lock(p_mutex))
     {
-        fprintf(stderr, "Lock project mutex failure!\n");
+        log0(ERROR, kModName, __func__, "Lock project mutex failure!");
         return kFailure;
     }
 
     if(!(fList = fopen(file_name, "r")))
     {
-        fprintf(stderr, "Can not open ini file.\n");
+        log0(ERROR, kModName, __func__, "Can not open ini file.");
         return kFailure;
     }
 
@@ -3972,17 +4071,18 @@ int load_proj_list(PROJ_DATA *p_list, const int list_size, const char *file_name
     fclose(fList);
     if (p_mutex && pthread_mutex_unlock(p_mutex))
     {
-        fprintf(stderr, "Unlock project mutex failure!\n");
+        log0(ERROR, kModName, __func__, "Unlock project mutex failure!");
         return kFailure;
     }
 
     return line_count;
 
 LOAD_PROJ_FAIL_LINE:
-    fprintf(stderr, "Project list malformed in line %d.\n", line_count);
+    log1(ERROR, kModName, __func__,
+            "Project list malformed in line %d", line_count);
     if (p_mutex && pthread_mutex_unlock(p_mutex))
     {
-        fprintf(stderr, "Unlock project mutex failure!\n");
+        log0(ERROR, kModName, __func__, "Unlock project mutex failure!");
     }
     fclose(fList);
     return kFailure;
@@ -3999,13 +4099,13 @@ int load_com_setting(COM_CTX *p_ctx, const char* ini_file)
 
     if (!p_ctx)
     {
-        fprintf(stderr, "Parameter Fail!\n");
+        log0(ERROR, kModName, __func__, "Parameter Fail!");
         return kFailure;
     }
 
     if(!(fpSetting = fopen(ini_file, "r")))
     {
-        fprintf(stderr, "Can not open ini file.\n");
+        log0(ERROR, kModName, __func__, "Can not open ini file.");
         return RET_ERR_SETUP_FILE;
     }
 
@@ -4057,7 +4157,7 @@ int setport(COM_CTX *p_ctx)
 
     if (!p_ctx)
     {
-        fprintf(stderr, "Parameter Fail!\n");
+        log0(ERROR, kModName, __func__, "Parameter Fail!");
         return kFailure;
     }
 
@@ -4153,7 +4253,8 @@ int setport(COM_CTX *p_ctx)
     //Interface = UC500_UART_TYPE_485;
     if(ioctl(fd, MATRIX_SET_UART_TYPE, &Interface) != 0) 
     {
-        fprintf(stderr, "ioctl() Fail!, fd: %d\n", fd);
+        log1(ERROR, kModName, __func__,
+            "ioctl() Fail!, fd: %d", fd);
         close(fd);
         return RET_ERR_READER_FILE;
     }
@@ -4161,7 +4262,7 @@ int setport(COM_CTX *p_ctx)
     /*termios functions use to control asynchronous communications ports*/
     if (tcgetattr(fd, &T_new) != 0) 
     {       /*fetch tty state*/
-        fprintf(stderr, "tcgetattr() Fail!\n");
+        log0(ERROR, kModName, __func__, "tcgetattr() Fail!");
         close(fd);
         return RET_ERR_READER_FILE; 
     }
@@ -4177,7 +4278,7 @@ int setport(COM_CTX *p_ctx)
     T_new.c_lflag = 0;
     if (tcsetattr(fd, TCSANOW, &T_new) != 0) 
     {
-        fprintf(stderr, "tcsetattr() Fail!\n");
+        log0(ERROR, kModName, __func__, "tcsetattr() Fail!");
         close(fd);
         return RET_ERR_READER_FILE; 
     }
@@ -4214,14 +4315,14 @@ int serOpenCOM(COM_CTX* p_ctx)
 
     if (!p_ctx)
     {
-        fprintf(stderr, "Parameter Fail!\n");
+        log0(ERROR, kModName, __func__, "Parameter Fail!");
         return kFailure;
     }
 
     r = OpenDev(p_ctx->port);
     if( r < 0)
     {
-        fprintf(stderr, "Opem COM port Fail!\n");
+        log0(ERROR, kModName, __func__, "Opem COM port Fail!");
         return kFailure;
     }
 
@@ -4229,7 +4330,7 @@ int serOpenCOM(COM_CTX* p_ctx)
 
     if( setport(p_ctx))
     {
-        fprintf(stderr, "Set COM port Fail!\n");
+        log0(ERROR, kModName, __func__, "Set COM port Fail!");
         return kFailure;
     }
 
@@ -4244,13 +4345,13 @@ int serCloseCOM(COM_CTX *p_ctx)
 {
     if (!p_ctx)
     {
-        fprintf(stderr, "Parameter Fail!\n");
+        log0(ERROR, kModName, __func__, "Parameter Fail!");
         return kFailure;
     }
 
     if( p_ctx->com_handle < 0 )
     {
-        fprintf(stderr, "Parameter Fail!\n");
+        log0(ERROR, kModName, __func__, "Parameter Fail!");
         return RET_ERR_UNKNOW;
     }
 
@@ -4272,7 +4373,7 @@ int serReadCOM(COM_CTX *p_ctx, void *pData, const int ci32Len)
 
     if (!p_ctx)
     {
-        fprintf(stderr, "Parameter Fail!\n");
+        log0(ERROR, kModName, __func__, "Parameter Fail!");
         return kFailure;
     }
 
@@ -4296,7 +4397,7 @@ int serWriteCOM(COM_CTX *p_ctx, const void *pcData, const int ci32Len)
     int i = 0, j;
     if (!p_ctx)
     {
-        fprintf(stderr, "Parameter Fail!\n");
+        log0(ERROR, kModName, __func__, "Parameter Fail!");
         return kFailure;
     }
 
@@ -4310,146 +4411,200 @@ int serWriteCOM(COM_CTX *p_ctx, const void *pcData, const int ci32Len)
     return i;
 }
 
-int init_log(LOG_CTX* p_ctx, LOG_LEVEL level)
+int init_log(LOG_LEVEL level)
 {
-    if (!p_ctx)
+    g_log_level = level;
+    char log_path[kMaxPathLen + 1]; 
+
+    //log0(INFO, kModName, __func__, "Create pipe for log");
+    if (pipe(g_log_pipe) != kSuccess)
     {
-        fprintf(stderr, "Parameter Fail!\n");
+        log0(ERROR, kModName, __func__, "Can not create pipe for log");
         return kFailure;
     }
 
-    p_ctx->log_level = level;
-
-    if (pthread_mutex_init(&(p_ctx->log_mutex), NULL) != kSuccess)
+    log2(INFO, kModName, __func__, "Duplicate stderr to pipe: %d -> %d", STDERR_FILENO, g_log_pipe[1]);
+    if (dup2(g_log_pipe[1], STDERR_FILENO) != kSuccess)
     {
-        fprintf(stderr, "Can not create employee mutex.\n");
+        log0(ERROR, kModName, __func__, "Can not duplicate stderr");
         return kFailure;
     }
 
-    /*
-    fprintf(stderr, "open pipe");
-    if (pipe(p_ctx->log_pipe) != kSuccess)
+    log0(INFO, kModName, __func__, "Make sure baklog folder is exist");
+    if (access(kLogFolder, F_OK) == kFailure)
     {
-        log0(p_ctx, ERROR, g_mod, __func__, "Can not create pipe for log.\n");
-        return kFailure;
+        if (mkdir(kLogFolder, 775) == kFailure)
+        {
+            log1(ERROR, kModName, __func__, "Can not make folder: %s", kLogFolder);
+            return kFailure;
+        }
     }
 
-    fprintf(stderr, "backup stderr");
-    p_ctx->fd_stderr = STDERR_FILENO;
-    fprintf(stderr, "stderr");
-    if (dup2(p_ctx->log_pipe[1], STDERR_FILENO) != kSuccess)
+    log0(INFO, kModName, __func__, "Open log file");
+    memset(log_path, 0, kMaxPathLen + 1);
+    snprintf(log_path, kMaxPathLen + 1, "./%s.%s", kModName, kLogSuffix);
+    if ((g_log_fd = open(log_path, O_APPEND|O_RDWR|O_CREAT, 0666)) == kFailure)
     {
-        log0(p_ctx, ERROR, g_mod, __func__, "Can not duplicate stderr.\n");
+        log1(ERROR, kModName, __func__, "Can not open log file: %s", log_path);
         return kFailure;
     }
-    */
-
-    //TODO need to open a really file
 
     return kSuccess;
 }
 
-char* get_log_YmdHMS(void)
+
+int log_lock()
 {
-    struct tm time_info = { 0 };
-    static char cur_date[21];
-    /* init */
-    memset(cur_date, 0, 21);
-    get_current_time_r(&time_info);
-    snprintf(cur_date, sizeof(cur_date), "%.4d/%.2d/%.2d %.2d:%.2d:%.2d",
-            time_info.tm_year+1900,
-            time_info.tm_mon+1,
-            time_info.tm_mday,
-            time_info.tm_hour,
-            time_info.tm_min,
-            time_info.tm_sec);
-    return cur_date;
+    pthread_mutex_t *mutex = get_log_mutex();
+    if (mutex && !pthread_mutex_lock(mutex))
+    {
+        return kSuccess;
+    }
+    return kFailure;
 }
 
-int log_lock(LOG_CTX* p_ctx)
+int log_unlock()
 {
-    if (pthread_mutex_lock(&p_ctx->log_mutex))
+    pthread_mutex_t *mutex = get_log_mutex();
+    if (mutex && !pthread_mutex_unlock(mutex))
     {
-        fprintf(stderr, "Lock log mutex failure!\n");
+        return kSuccess;
+    }
+    return kFailure;
+}
+
+static pthread_mutex_t* get_log_mutex()
+{
+    static pthread_mutex_t *mutex = NULL;
+
+    if (mutex)
+    {
+        return mutex;
+    }
+
+    mutex = malloc(sizeof(pthread_mutex_t));
+
+    if (!mutex)
+    {
+        return NULL;
+    }
+
+    if (pthread_mutex_init(mutex, NULL) != kSuccess)
+    {
+        free(mutex);
+        mutex = NULL;
+    }
+
+    return mutex;
+}
+
+int get_file_size(const char* file_name)
+{
+    struct stat stat_buf;
+
+    if (!file_name)
+    {
+        log0(ERROR, kModName, __func__, "Parameter Fail!");
         return kFailure;
     }
-    return kSuccess;
-}
 
-int log_unlock(LOG_CTX* p_ctx)
-{
-    if (pthread_mutex_unlock(&p_ctx->log_mutex))
+    if (stat(file_name, &stat_buf) == kFailure)
     {
-        fprintf(stderr, "Unlock log mutex failure!\n");
         return kFailure;
     }
-    return kSuccess;
+
+    return (int)stat_buf.st_size;
 }
 
-/*
-void log_thr_func(void *ctx)
+
+void log_thr_func(void)
 {
-    EDC_CTX *edc_ctx;
-    LOG_CTX *log_ctx;
+    //EDC_CTX *edc_ctx;
     fd_set log_fds;
+    char log_buf[kMaxLogLen];
+    int read_len;
+    int log_file_size;
     struct timeval timeout;
     int sel_ret;
+    char log_path[kMaxPathLen + 1]; 
+    char baklog_path[kMaxPathLen + 1]; 
+    char cur_date[kMaxYmdHMSLen + 1];
 
+    /*
     if (!ctx)
     {
-        fprintf(stderr, "Parameter Fail!\n");
-        return kFailure;
+        log0(ERROR, kModName, __func__, "Parameter Fail!");
+        return;
     }
-
     edc_ctx = (EDC_CTX*)ctx;
-    log_ctx = &edc_ctx->log_ctx;
+    */
+    snprintf(log_path, kMaxPathLen + 1, "./%s.%s", kModName, kLogSuffix);
 
     while (kTrue) 
     {    
         //TODO: Need a stop signal
         if (kFalse)
         {
-            //link stderr to stderr.log
-            if (dup2(log_ctx->fd_stderr, STDERR_FILENO) == kFailure)
-            {    
-                log0(edc_ctx, ERROR, g_mod, __func__, "Dup2 failure when stop log\n");
-            }    
-            break;
         }    
 
         // check if need rotate
-        //TODO: port it
-        //CS_SERV_bakStderrLog_noTemp(&(pEng->log), LOG_MIN_BAK_SIZE, LOG_FILE_PREFIX);
-        //
+        log_file_size = get_file_size(log_path);
+        if (log_file_size == kFailure)
+        {
+            log1(ERROR, kModName, __func__, "Can not fetch log file size: %s", log_path);
+        }
+        else if (log_file_size > kMaxLogFileSize)
+        {
+            if (get_cur_YmdHMS_r(cur_date, kMaxYmdHMSLen + 1, kTrue) == NULL)
+            {
+                log0(FATAL, kModName, __func__, "Get current datetime fail");
+                return;
+            }
+
+            snprintf(baklog_path, kMaxPathLen + 1,
+                    "%s%s.%s", kModName, cur_date, kLogSuffix);
+
+            close(g_log_fd);
+            log1(INFO, kModName, __func__, "Backup log file: %s", baklog_path);
+            if (rename(log_path, baklog_path) == kFailure)
+            {
+                log2(FATAL, kModName, __func__,
+                        "Backup log file failure. %s -> %s", log_path, baklog_path);
+            }
+
+            log1(INFO, kModName, __func__, "Reopen log file: %s", log_path);
+            if ((g_log_fd = open(log_path, O_APPEND|O_RDWR|O_CREAT, 0666)) == kFailure)
+            {
+                log1(FATAL, kModName, __func__, "Can not open log file: %s", log_path);
+                return;
+            }
+        }
+        
+
         FD_ZERO(&log_fds);
-        FD_SET(log_ctx->log_pipe[0], &log_fds);
+        FD_SET(g_log_pipe[0], &log_fds);
         timeout.tv_sec = 5;
         timeout.tv_usec = 0;
-
-        sel_ret = select(log_ctx->log_pipe[0] + 1, NULL, &log_fds, NULL, &timeout);
+        sel_ret = select(g_log_pipe[0] + 1, NULL, &log_fds, NULL, &timeout);
         if (sel_ret < 0 && errno != EINTR)
         {
-            fprintf(stderr, "Read stderr failure.\n",\
-                    strerror(errno));
-            return kFailure;
+            log1(FATAL, kModName, __func__,
+                    "Read stderr failure: %s", strerror(errno));
+            return;
         }
         else if (sel_ret == 0)
         {
-            fprintf(stderr, "Read stderr timeout.\n");
-            return kFailure;
+            log0(DEBUG, kModName, __func__, "Read stderr timeout.");
         }
-        else if (FD_ISSET(log_ctx->log_pipe[0], &log_fds))
+        else if (FD_ISSET(g_log_pipe[0], &log_fds))
         {
-            if (read(log_ctx->log_pipe[0], szRead, MAX_URL_LINE_SIZE) < 0)
+            if ((read_len = read(g_log_pipe[0], log_buf, kMaxLogLen)) < 0)
             {
-                log0(edc_ctx, ERROR, g_mod, __func__, "Read fd pf log failure.\n");
+                log0(ERROR, kModName, __func__, "Read log fd failure");
             }
-            write(pEng->log.fdStderr, szRead, i32nRead);
+            write(g_log_fd, log_buf, read_len);
         }
-
     }
-    
-    return NULL;
+    return;
 }
-*/
 
