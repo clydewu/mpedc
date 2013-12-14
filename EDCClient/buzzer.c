@@ -155,7 +155,7 @@ const int kASCII_zero = 48;
 const int kASCII_nine = 57;
 const int kMaxFailLimit = 10;
 const int kMaxLogLen = 8192;
-const int kMaxLogFileSize = 1024 * 1024 * 256;
+const int kMaxLogFileSize = 1024 * 1024;
 const char kYmdHMS[] = "%.4d-%.2d-%.2d %.2d:%.2d:%.2d";
 const char kYmdHMS_NS[] = "%.4d%.2d%.2d%.2d%.2d%.2d";
 
@@ -437,6 +437,8 @@ typedef struct _edc_ctx
     char            edc_tmp_log[MAX_MEM_EDC_LOG][MAX_EDC_LOG_LEN];
     int             edc_log_num;
     pthread_mutex_t edc_log_mutex;
+
+    pthread_t       log_thr;
 } EDC_CTX;
 
 
@@ -470,7 +472,7 @@ int get_current_time_r(struct tm* p_time_info);
 int show_datetime(EDC_CTX* p_ctx, struct tm* p_time_info);
 int show_line(EDC_CTX*, int, const char*);
 int left_right_str(char*, const int, const char*, const char*);
-int set_led(unsigned int conf);
+int set_led(EDC_CTX* p_ctx, unsigned int conf);
 int read_rfid(EDC_CTX*);
 int is_valid_card(EDC_CTX*);
 int buzzer(int);
@@ -521,7 +523,7 @@ void sync_log_thr_func(void *ctx);
 void log_thr_func();
 
 // Log Utilities
-int init_log(LOG_LEVEL level);
+int init_log(EDC_CTX* p_ctx, LOG_LEVEL level);
 char* get_log_YmdHMS(void);
 int log_lock();
 int log_unlock();
@@ -546,7 +548,7 @@ int main(void)
         goto INIT_FAIL;
     }
 
-    if (set_led(kLEDNone) != kSuccess)
+    if (set_led(&ctx, kLEDNone) != kSuccess)
     {
         log0(FATAL, kModName, __func__, "Set LED down failure.");
         goto INIT_FAIL;
@@ -605,7 +607,7 @@ INIT_FAIL:
         log0(ERROR, kModName, __func__, "Can not print error msg to screen.");
     }
 
-    if (set_led(kLEDNone) != kSuccess)
+    if (set_led(&ctx, kLEDNone) != kSuccess)
     {
         log0(ERROR, kModName, __func__, "Can not set LED.");
     }
@@ -1105,7 +1107,7 @@ int init(EDC_CTX *p_ctx)
     }
 
     //log1(INFO, kModName, __func__, "Initialize log setup: %s", LOGLEVLE2STR[INFO]);
-    if (init_log(INFO) != kSuccess)
+    if (init_log(p_ctx, INFO) != kSuccess)
     {
         log0(ERROR, kModName, __func__, "Can not create log ctx.");
         return kFailure;
@@ -1653,12 +1655,12 @@ int load_network_set(EDC_CTX *p_ctx, const char *ini_file)
     }
     fclose(fpSetting);
 
-    log1(ERROR, kModName, __func__,
+    log1(INFO, kModName, __func__,
             "EDC ip: %s", p_ctx->edc_ip);
-    log1(ERROR, kModName, __func__,
-        "Submask: %s", p_ctx->submask);
-    log1(ERROR, kModName, __func__,
-        "Gateway: %s", p_ctx->gateway);
+    log1(INFO, kModName, __func__,
+            "Submask: %s", p_ctx->submask);
+    log1(INFO, kModName, __func__,
+            "Gateway: %s", p_ctx->gateway);
 
     return kSuccess;
 }
@@ -1730,22 +1732,66 @@ size_t sock_write(int sock, const char *buf, size_t buf_len)
 {
     size_t    nleft;
     ssize_t    send_len;
+
     const char  *ptr;
     char send_buf[kMaxHeaderLen + buf_len];
+
+    int sel_ret;
+    struct timeval timeout;
+    fd_set write_fds;
 
     snprintf(send_buf, kMaxHeaderLen + buf_len, "%d|%s", buf_len, buf);
     ptr = (char *)send_buf;
     nleft = strlen(send_buf);
     while (nleft > 0)
     {
-        if ((send_len = send(sock, ptr, nleft, 0)) < 0)
+        timeout.tv_sec = kMaxSockTimeout;
+        timeout.tv_usec = 0;
+        FD_ZERO(&write_fds);
+        FD_SET(sock, &write_fds);
+        sel_ret = select(sock + 1, NULL,
+                &write_fds, NULL, &timeout);
+        if (sel_ret == -1)
         {
-            log0(ERROR, kModName, __func__, "Send data failure!");
-            break;
+            if (errno == EINTR)
+            {
+                continue;
+            }
+            else
+            {
+                log0(ERROR, kModName, __func__, "Select failure");
+                return kFailure;
+            }
+        }
+        else if (sel_ret == 0)
+        {
+            log0(ERROR, kModName, __func__, "Select timeout");
+            return kFailure;
+        }
+        else if (FD_ISSET(sock, &write_fds))
+        {
+            send_len = send(sock, ptr, nleft, 0);
+            if (send_len == 0)
+            {
+                log0(ERROR, kModName, __func__, "Server disconnect.");
+                return kFailure;
+            }
+            else if ( send_len < 0)
+            {
+                if (errno == EINTR)
+                {
+                    continue;
+                }
+                log0(ERROR, kModName, __func__, "Send data failure!");
+                break;
+            }
+            else
+            {
+                nleft -= send_len;
+                ptr += send_len;
+            }
         }
 
-        nleft -= send_len;
-        ptr   += send_len;
     }
 
     return (buf_len - nleft);
@@ -1791,15 +1837,14 @@ size_t sock_read(int sock, char* buffer, size_t buf_len)
             }
             else
             {
-                log0(ERROR, kModName, __func__, "select failure");
+                log0(ERROR, kModName, __func__, "Select failure");
                 return kFailure;
             }
         }
         else if (sel_ret == 0)
         {
-            log0(ERROR, kModName, __func__, "Timeout");
+            log0(ERROR, kModName, __func__, "Select timeout");
             return kFailure;
-
         }
         else if (FD_ISSET(sock, &recv_fds))
         {
@@ -1807,7 +1852,6 @@ size_t sock_read(int sock, char* buffer, size_t buf_len)
             recv_len = recv(sock, recv_buf, kMaxBufferlen, 0);
             if (recv_len == 0)
             {
-                // Disconnect
                 log0(ERROR, kModName, __func__, "Server disconnect.");
                 return kFailure;
             }
@@ -1887,6 +1931,7 @@ int idle_state(EDC_CTX *p_ctx)
         return kFailure;
     }
 
+    log0(ERROR, kModName, __func__, "State change: IDLE");
     if (lcd_clean_scr(p_ctx->lkp_ctx) != kSuccess)
     {
         log0(ERROR, kModName, __func__, "Can not clean screen.");
@@ -1899,7 +1944,7 @@ int idle_state(EDC_CTX *p_ctx)
         return kFailure;
     }
 
-    if (set_led(kLEDBlue) != kSuccess)
+    if (set_led(p_ctx, kLEDBlue) != kSuccess)
     {
         log0(ERROR, kModName, __func__, "Can not set LED.");
         return kFailure;
@@ -2057,7 +2102,7 @@ int invalid_card_state(EDC_CTX *p_ctx)
         return kFailure;
     }
 
-    if (set_led(kLEDRed) != kSuccess)
+    if (set_led(p_ctx, kLEDRed) != kSuccess)
     {
         log0(ERROR, kModName, __func__, "Can not set LED.");
         return kFailure;
@@ -2132,7 +2177,7 @@ int quota_state(EDC_CTX* p_ctx)
         snprintf(p_ctx->project_code, kMaxProjectCodeLen + 1, "%s", "0000");
     }
 
-    if (set_led(kLEDGreen) != kSuccess)
+    if (set_led(p_ctx, kLEDGreen) != kSuccess)
     {
         log0(ERROR, kModName, __func__, "Can not set LED.");
         return kFailure;
@@ -2479,7 +2524,6 @@ int count2cost(PRINTERCOUNT_V2 *ptr_counter, int paper_size_a, int paper_size_b,
     // Count print cost
     for (i = 0; i < kMaxPrtPage; i++)
     {
-        //fprintf(stderr, "- %d - \n", i);
         if (i < paper_size_a)
         {
             //log0(ERROR, kModName, __func__, "--- print a big ---");
@@ -2837,7 +2881,7 @@ int setup_state(EDC_CTX* p_ctx)
         return kFailure;
     }
 
-    if (set_led(kLEDBlue) != kSuccess)
+    if (set_led(p_ctx, kLEDBlue) != kSuccess)
     {
         log0(ERROR, kModName, __func__, "Can not set LED.");
         return kFailure;
@@ -3388,19 +3432,32 @@ int show_datetime(EDC_CTX* p_ctx, struct tm* p_time_info)
     return show_line(p_ctx, 0, line_str);
 }
 
-int set_led(unsigned int conf)
+int set_led(EDC_CTX* p_ctx, unsigned int conf)
 {
     int i;
     int failure_count = 0;
     const int lcd_offset = 20;
 
+
     for (i = 0; i < kLEDNum; i++)
     {
         while (kTrue)
         {
+            if (pthread_mutex_lock(&p_ctx->lkp_ctx_mutex))
+            {
+                log0(ERROR, kModName, __func__, "Lock lkp_ctx mutex failure!");
+                return kFailure;
+            }
+
             if (device_power(i + lcd_offset, (conf >> i & 0x01)) == kSuccess)
             {
                 break;
+            }
+
+            if (pthread_mutex_unlock(&p_ctx->lkp_ctx_mutex))
+            {
+                log0(ERROR, kModName, __func__, "Unlock lkp_ctx mutex failure!");
+                return kFailure;
             }
 
             log1(ERROR, kModName, __func__,
@@ -3421,9 +3478,9 @@ int set_backlight(EDC_CTX* p_ctx, unsigned char u8_type)
     int ret;
     int failure_count = 0;
 
+    usleep(kMicroPerSecond / 10);
     while (kTrue)
     {
-
         if (pthread_mutex_lock(&p_ctx->lkp_ctx_mutex))
         {
             log0(ERROR, kModName, __func__, "Lock lkp_ctx mutex failure!");
@@ -3449,7 +3506,6 @@ int set_backlight(EDC_CTX* p_ctx, unsigned char u8_type)
         {
             return kFailure;
         }
-        usleep(kMicroPerSecond / 10);
     }
 
     return kSuccess;
@@ -3496,6 +3552,7 @@ int left_right_str(char *buf, const int buf_size, const char *left, const char *
 int show_line(EDC_CTX *p_ctx, int line, const char *string)
 {
     int ret = 0;
+    int result = kSuccess;
     int failure_count = 0;
 
     if (line > kMaxScreenLine - 1)
@@ -3510,21 +3567,26 @@ int show_line(EDC_CTX *p_ctx, int line, const char *string)
         return kFailure;
     }
     
+    if (pthread_mutex_lock(&p_ctx->lkp_ctx_mutex))
+    {
+        log0(ERROR, kModName, __func__, "Lock lkp_ctx mutex failure!");
+        return kFailure;
+    }
+
     while (kTrue)
     {
-        if (pthread_mutex_lock(&p_ctx->lkp_ctx_mutex))
-        {
-            log0(ERROR, kModName, __func__, "Lock lkp_ctx mutex failure!");
-            return kFailure;
-        }
-
         ret = lcd_clean_buffer(p_ctx->lkp_ctx, 0,
                 kFontHeight * line, kScreenWidth, kFontHeight);
         if (ret != 0)
         {
             log2(ERROR, kModName, __func__,
                     "Clean buffer error, line: %d, ret: %d", line, ret);
-            return kFailure;
+            if (++failure_count > kMaxFailLimit)
+            {
+                result = kFailure;
+                break;
+            }
+            continue;
         }
 
         ret = lcd_draw_text_16f(p_ctx->lkp_ctx, 0, kFontHeight * line, string, 0);
@@ -3532,35 +3594,38 @@ int show_line(EDC_CTX *p_ctx, int line, const char *string)
         {
             log2(ERROR, kModName, __func__,
                     "Draw buffer error, line: %d, ret: %d", line, ret);
-            return kFailure;
+            if (++failure_count > kMaxFailLimit)
+            {
+                result = kFailure;
+                break;
+            }
+            continue;
         }
 
         ret = lcd_print_out(p_ctx->lkp_ctx);
-
-        if (pthread_mutex_unlock(&p_ctx->lkp_ctx_mutex))
+        if (ret != 0)
         {
-            log0(ERROR, kModName, __func__, "Unlock lkp_ctx mutex failure!");
-            return kFailure;
+            log2(ERROR, kModName, __func__,
+                    "Print out LCD error, str: '%s', ret: %d", string, ret);
+            if (++failure_count > kMaxFailLimit)
+            {
+                result = kFailure;
+                break;
+            }
+            continue;
         }
 
-        if (ret == 0)
-        {
-            break;
-        }
-
-        log3(ERROR, kModName, __func__,
-                "Print out LCD error, str: '%s', line: %d, ret: %d",
-                string, line, ret);
-        if (++failure_count > kMaxFailLimit)
-        {
-            return kFailure;
-        }
+        result = kSuccess;
+        break;
     }
 
-    //CLD: don't need to sleep here
-    //usleep(kMicroPerSecond * 0.2);
+    if (pthread_mutex_unlock(&p_ctx->lkp_ctx_mutex))
+    {
+        log0(ERROR, kModName, __func__, "Unlock lkp_ctx mutex failure!");
+        return kFailure;
+    }
 
-    return kSuccess;
+    return result;
 }
 
 int read_rfid(EDC_CTX *p_ctx)
@@ -4411,20 +4476,36 @@ int serWriteCOM(COM_CTX *p_ctx, const void *pcData, const int ci32Len)
     return i;
 }
 
-int init_log(LOG_LEVEL level)
+int init_log(EDC_CTX* p_ctx, LOG_LEVEL level)
 {
     g_log_level = level;
     char log_path[kMaxPathLen + 1]; 
 
-    //log0(INFO, kModName, __func__, "Create pipe for log");
+    log0(INFO, kModName, __func__, "Open log file");
+    memset(log_path, 0, kMaxPathLen + 1);
+    snprintf(log_path, kMaxPathLen + 1, "./%s.%s", kModName, kLogSuffix);
+    if ((g_log_fd = open(log_path, O_APPEND|O_RDWR|O_CREAT, 0666)) == kFailure)
+    {
+        log1(ERROR, kModName, __func__, "Can not open log file: %s", log_path);
+        return kFailure;
+    }
+
+    log0(INFO, kModName, __func__, "Create pipe for log");
     if (pipe(g_log_pipe) != kSuccess)
     {
         log0(ERROR, kModName, __func__, "Can not create pipe for log");
         return kFailure;
     }
 
+    if (pthread_create(&(p_ctx->log_thr), NULL,
+                (void*)log_thr_func, NULL) != kSuccess)
+    {
+        log0(ERROR, kModName, __func__, "Create log thread failure.");
+        return kFailure;
+    }
+
     log2(INFO, kModName, __func__, "Duplicate stderr to pipe: %d -> %d", STDERR_FILENO, g_log_pipe[1]);
-    if (dup2(g_log_pipe[1], STDERR_FILENO) != kSuccess)
+    if (dup2(g_log_pipe[1], STDERR_FILENO) == kFailure)
     {
         log0(ERROR, kModName, __func__, "Can not duplicate stderr");
         return kFailure;
@@ -4438,15 +4519,6 @@ int init_log(LOG_LEVEL level)
             log1(ERROR, kModName, __func__, "Can not make folder: %s", kLogFolder);
             return kFailure;
         }
-    }
-
-    log0(INFO, kModName, __func__, "Open log file");
-    memset(log_path, 0, kMaxPathLen + 1);
-    snprintf(log_path, kMaxPathLen + 1, "./%s.%s", kModName, kLogSuffix);
-    if ((g_log_fd = open(log_path, O_APPEND|O_RDWR|O_CREAT, 0666)) == kFailure)
-    {
-        log1(ERROR, kModName, __func__, "Can not open log file: %s", log_path);
-        return kFailure;
     }
 
     return kSuccess;
@@ -4540,6 +4612,7 @@ void log_thr_func(void)
     */
     snprintf(log_path, kMaxPathLen + 1, "./%s.%s", kModName, kLogSuffix);
 
+    log0(ERROR, kModName, __func__, "Log rotation thread start");
     while (kTrue) 
     {    
         //TODO: Need a stop signal
@@ -4585,7 +4658,7 @@ void log_thr_func(void)
         FD_SET(g_log_pipe[0], &log_fds);
         timeout.tv_sec = 5;
         timeout.tv_usec = 0;
-        sel_ret = select(g_log_pipe[0] + 1, NULL, &log_fds, NULL, &timeout);
+        sel_ret = select(g_log_pipe[0] + 1, &log_fds, NULL, NULL, &timeout);
         if (sel_ret < 0 && errno != EINTR)
         {
             log1(FATAL, kModName, __func__,
@@ -4598,6 +4671,7 @@ void log_thr_func(void)
         }
         else if (FD_ISSET(g_log_pipe[0], &log_fds))
         {
+            memset(log_buf, 0, kMaxLogLen);
             if ((read_len = read(g_log_pipe[0], log_buf, kMaxLogLen)) < 0)
             {
                 log0(ERROR, kModName, __func__, "Read log fd failure");
