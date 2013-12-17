@@ -39,6 +39,11 @@
 #define MAX_LOG_TYPE_LEN    (16)
 #define MAX_LOG_LEVEL_LEN   (16)
 
+// This is only for syntax highlight of vim in Mac OS
+#ifndef MSG_NOSIGNAL
+#define MSG_NOSIGNAL 0x2000
+#endif
+
 // log macro Function
 // Wht use macro here?
 // Cause of exp should be combine to the 2nd argument of frpintf
@@ -547,6 +552,9 @@ int main(void)
         log0(FATAL, kModName, __func__, "Can not connect to the device.");
         goto INIT_FAIL;
     }
+    log0(INFO, kModName, __func__, "------------------------------------");
+    log0(INFO, kModName, __func__, "EDC Client initialize OK");
+    log0(INFO, kModName, __func__, "------------------------------------");
 
     if (set_led(&ctx, kLEDNone) != kSuccess)
     {
@@ -747,7 +755,7 @@ void sync_log_thr_func(void *ctx)
 
         if (p_ctx->connected)
         {
-            log0(INFO, kModName, __func__, "Sync EDC Log to server");
+            //log0(INFO, kModName, __func__, "Sync EDC Log to server");
             ret = sync_log(p_ctx);
             if (ret != kSuccess)
             {
@@ -765,7 +773,7 @@ void sync_log_thr_func(void *ctx)
             log0(INFO, kModName, __func__, "Server is disconnected, re-connect to server");
             if (connect_server(p_ctx) != kSuccess)
             {
-                log0(ERROR, kModName, __func__, "Re-Connect to server failure");
+                log0(ERROR, kModName, __func__, "Re-Connect to agent failure");
                 sync_success = kFalse;
             }
             else
@@ -1185,6 +1193,17 @@ int init(EDC_CTX *p_ctx)
         return kFailure;
     }
 
+    if (p_ctx->prt_con_type != 0)
+    {
+        if (ptr_select(p_ctx->prt_con_type) != kSuccess)
+        {
+            log1(ERROR, kModName, __func__,
+                    "Set COM port printer failure: COM%d\n",
+                    p_ctx->prt_con_type);
+        }
+    }
+
+
     log1(INFO, kModName, __func__, "Load network setup: %s", kNetworkIni);
     if (load_network_set(p_ctx, kNetworkIni) != kSuccess)
     {
@@ -1507,7 +1526,7 @@ int connect_server(EDC_CTX* p_ctx)
         return kFailure;
     }
 
-    log0(ERROR, kModName, __func__, "Connect to server success.");
+    log0(INFO, kModName, __func__, "Connect to agent success.");
     p_ctx->server_fd = sock;
     p_ctx->connected = kTrue;
 
@@ -1740,9 +1759,25 @@ size_t sock_write(int sock, const char *buf, size_t buf_len)
     struct timeval timeout;
     fd_set write_fds;
 
-    snprintf(send_buf, kMaxHeaderLen + buf_len, "%d|%s", buf_len, buf);
+    snprintf(send_buf, kMaxHeaderLen + buf_len, "%d|%s", (int)buf_len, buf);
     ptr = (char *)send_buf;
     nleft = strlen(send_buf);
+
+    /*
+    while (nleft > 0)
+    {
+        if ((send_len = send(sock, ptr, nleft, 0)) < 0)
+        {
+            fprintf(stderr, "Send data failure!\n");
+            break;
+        }
+
+        nleft -= send_len;
+        ptr += send_len;
+    }
+    return (buf_len - nleft);
+    */
+
     while (nleft > 0)
     {
         timeout.tv_sec = kMaxSockTimeout;
@@ -1770,7 +1805,7 @@ size_t sock_write(int sock, const char *buf, size_t buf_len)
         }
         else if (FD_ISSET(sock, &write_fds))
         {
-            send_len = send(sock, ptr, nleft, 0);
+            send_len = send(sock, ptr, nleft, MSG_NOSIGNAL);
             if (send_len == 0)
             {
                 log0(ERROR, kModName, __func__, "Server disconnect.");
@@ -1782,7 +1817,7 @@ size_t sock_write(int sock, const char *buf, size_t buf_len)
                 {
                     continue;
                 }
-                log0(ERROR, kModName, __func__, "Send data failure!");
+                log1(ERROR, kModName, __func__, "Send data failure, ret: %d", (int)send_len);
                 break;
             }
             else
@@ -1791,7 +1826,6 @@ size_t sock_write(int sock, const char *buf, size_t buf_len)
                 ptr += send_len;
             }
         }
-
     }
 
     return (buf_len - nleft);
@@ -1931,7 +1965,7 @@ int idle_state(EDC_CTX *p_ctx)
         return kFailure;
     }
 
-    log0(ERROR, kModName, __func__, "State change: IDLE");
+    log0(INFO, kModName, __func__, "State change: IDLE");
     if (lcd_clean_scr(p_ctx->lkp_ctx) != kSuccess)
     {
         log0(ERROR, kModName, __func__, "Can not clean screen.");
@@ -2045,15 +2079,16 @@ int idle_state(EDC_CTX *p_ctx)
             usleep(kMicroPerSecond * kWaitSecReadComPort);
             if (read_rfid(p_ctx) == kSuccess)
             {
-                log1(ERROR, kModName, __func__, "Read Card: %s", p_ctx->curr_card_sn);
                 if (is_valid_card(p_ctx))
                 {
                     p_ctx->state = QUOTA;
                     buzzer(kMicroPerSecond * kBuzzerShort);
+                    log1(INFO, kModName, __func__, "Valid Card: %s", p_ctx->curr_card_sn);
                 }
                 else
                 {
                     p_ctx->state = INVALID_CARD;
+                    log1(INFO, kModName, __func__, "Get an invalid Card: %s", p_ctx->curr_card_sn);
                 }
                 break;
             }
@@ -2197,16 +2232,6 @@ int quota_state(EDC_CTX* p_ctx)
         return kFailure;
     }
 
-    if (p_ctx->prt_con_type != 0)
-    {
-        if (ptr_select(p_ctx->prt_con_type) != kSuccess)
-        {
-            log1(ERROR, kModName, __func__,
-                    "Set COM port printer failure: COM: %d\n",
-                    p_ctx->prt_con_type);
-        }
-    }
-
     // Init print, start to statistic
     if (ptr_count_init(p_ctx->lkp_ctx) != kSuccess)
     {
@@ -2263,6 +2288,7 @@ int quota_state(EDC_CTX* p_ctx)
             return kFailure;
         }
 
+        print_printertype(&(ptr_counter.print));
         /*
          * How to detect scan?
          * Due to ptr_count_get() can only provide correct status of scan
@@ -2300,6 +2326,10 @@ int quota_state(EDC_CTX* p_ctx)
         status_action_flag = ((ptr_counter.u8_work_status & 0x01) == 0)?kTrue:kFalse;
         usage_modified_flag = (!usage_same_as(&(ptr_counter.photocopy), &continue_photocopy_usage)
                           || !usage_same_as(&(ptr_counter.print), &continue_print_usage));
+
+        log2(INFO, kModName, __func__, "Status flag: %d, Modified flag: %d",
+                status_action_flag, usage_modified_flag);
+
         if (status_action_flag || usage_modified_flag)
         {
             log0(ERROR, kModName, __func__, "----- print count -----");
@@ -2347,12 +2377,12 @@ int quota_state(EDC_CTX* p_ctx)
         {
             if (stage == 1)
             {
-                log0(ERROR, kModName, __func__, "Action finish.");
+                log0(INFO, kModName, __func__, "Action finish.");
                 if (usage_same_as(&(ptr_counter.photocopy), &empty_usage)
                     && usage_same_as(&(ptr_counter.print), &photocopy_usage)
                     && usage_same_as(&(ptr_counter.scan), &print_usage))
                 {
-                    log0(ERROR, kModName, __func__, "All counter are not modified.");
+                    log0(INFO, kModName, __func__, "All counter are not modified.");
                     scan_flag = kTrue;
                 }
 
@@ -2377,6 +2407,8 @@ int quota_state(EDC_CTX* p_ctx)
             left_right_str(remain_line, kMaxLineWord + 1, remain_sec_str, action_type);
             show_line(p_ctx, 3, remain_line);
         }
+
+        usleep(kMicroPerSecond / 2);
     }
 
     if (!usage_empty(&ptr_counter.photocopy)
@@ -2477,8 +2509,6 @@ int print_printertype(PRINTERTYPE *usage)
                 usage->u16_double_color_a[i],
                 usage->u16_double_color_b[i]);
     }
-
-    log0(ERROR, kModName, __func__, "");
 
     return kSuccess;
 }
@@ -3176,7 +3206,7 @@ int setup_state(EDC_CTX* p_ctx)
 
                 if (connect_server(p_ctx) != kSuccess)
                 {
-                    log0(ERROR, kModName, __func__, "Connect to server failure.");
+                    log0(ERROR, kModName, __func__, "Connect to agent failure.");
                 }
 
                 break;
@@ -3435,39 +3465,43 @@ int show_datetime(EDC_CTX* p_ctx, struct tm* p_time_info)
 int set_led(EDC_CTX* p_ctx, unsigned int conf)
 {
     int i;
+    int ret;
+    int result = kSuccess;
     int failure_count = 0;
     const int lcd_offset = 20;
 
+    if (pthread_mutex_lock(&p_ctx->lkp_ctx_mutex))
+    {
+        log0(ERROR, kModName, __func__, "Lock lkp_ctx mutex failure!");
+        return kFailure;
+    }
 
     for (i = 0; i < kLEDNum; i++)
     {
         while (kTrue)
         {
-            if (pthread_mutex_lock(&p_ctx->lkp_ctx_mutex))
+            ret = device_power(i + lcd_offset, (conf >> i & 0x01));
+            if (ret != kSuccess)
             {
-                log0(ERROR, kModName, __func__, "Lock lkp_ctx mutex failure!");
-                return kFailure;
+                log2(ERROR, kModName, __func__,
+                        "Set LED failure, led: %d, ret: %d", i, ret);
+                if (++failure_count > kMaxFailLimit)
+                {
+                    result = kFailure;
+                    break;
+                }
+                continue;
             }
 
-            if (device_power(i + lcd_offset, (conf >> i & 0x01)) == kSuccess)
-            {
-                break;
-            }
-
-            if (pthread_mutex_unlock(&p_ctx->lkp_ctx_mutex))
-            {
-                log0(ERROR, kModName, __func__, "Unlock lkp_ctx mutex failure!");
-                return kFailure;
-            }
-
-            log1(ERROR, kModName, __func__,
-                    "Can not power on LED device: %d", i + lcd_offset);
-            if (++failure_count > kMaxFailLimit)
-            {
-                return kFailure;
-            }
-            usleep(kMicroPerSecond / 10);
+            usleep(kMicroPerSecond / 20);
+            break;
         }
+    }
+
+    if (pthread_mutex_unlock(&p_ctx->lkp_ctx_mutex))
+    {
+        log0(ERROR, kModName, __func__, "Unlock lkp_ctx mutex failure!");
+        return kFailure;
     }
 
     return kSuccess;
@@ -4612,7 +4646,7 @@ void log_thr_func(void)
     */
     snprintf(log_path, kMaxPathLen + 1, "./%s.%s", kModName, kLogSuffix);
 
-    log0(ERROR, kModName, __func__, "Log rotation thread start");
+    log0(INFO, kModName, __func__, "Log rotation thread start");
     while (kTrue) 
     {    
         //TODO: Need a stop signal
