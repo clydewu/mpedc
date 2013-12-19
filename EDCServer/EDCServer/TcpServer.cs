@@ -226,7 +226,8 @@ namespace EDCServer
 		                        "[dbo].[DataEmployee].[UserNumber]," +
 		                        "[dbo].[DataEmployee].[CardNumber]," +
 		                        "[dbo].[DataEmployee].[IniQuota]," +
-		                        "[dbo].[DataEmployee].[NowQuota] " +
+		                        "[dbo].[DataEmployee].[NowQuota]," +
+                                "[dbo].[DataEmployee].[IsColorPrint] " +
 	                            "FROM [dbo].[DataEmployee] JOIN [dbo].[DataDepartment]" +
 	                            "ON [dbo].[DataEmployee].[DepartmentNo] = [dbo].[DataDepartment].[DepartmentNo]";
             sql_cmd = new SqlCommand(sql_select, sqlConn);
@@ -246,6 +247,8 @@ namespace EDCServer
                 emp_list.Append(sql_reader["IniQuota"]);
                 emp_list.Append("\t");
                 emp_list.Append(sql_reader["NowQuota"]);
+                emp_list.Append("\t");
+                emp_list.Append(sql_reader["IsColorPrint"]);
                 emp_list.Append("\n");
             }
             sql_reader.Close();

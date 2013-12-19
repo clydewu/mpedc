@@ -204,6 +204,7 @@ const int kMaxPathLen = 512;
 const char kTab = '\t';
 const char kNewLine = '\n';
 const char kSep = '|';
+const char kPoint = '.';
 const int kMaxIPLen = MAX_IP_LEN;
 const int kMaxPortLen = MAX_PORT_LEN;
 const int kMaxSockTimeout = 10;
@@ -376,6 +377,7 @@ typedef struct _employee_data
     char    card_sn[MAX_CARD_SN_LEN + 1];
     int     init_quota;
     int     curr_quota;
+    int     color_print;
 } EMPLOYEE_DATA;
 
 typedef struct _edc_data
@@ -489,6 +491,7 @@ int load_server_set(EDC_CTX*, const char*);
 int load_network_set(EDC_CTX*, const char*);
 int set_backlight(EDC_CTX* p_ctx, unsigned char u8_type);
 int show_quota_info(EDC_CTX *p_ctx, int quota, int gb, int gs, int go, int cb, int cs, int co);
+int trim_ipv4(char* ipv4, const int len);
 
 // List Utilities
 int sync_lists(EDC_CTX*);
@@ -2239,6 +2242,7 @@ int quota_state(EDC_CTX* p_ctx)
     }
 
     // Init print, start to statistic
+    // TODO it will use edc_ctx->color_print in future
     if (ptr_count_init(p_ctx->lkp_ctx) != kSuccess)
     {
         log0(ERROR, kModName, __func__, "Initial print counter failure");
@@ -2543,11 +2547,19 @@ int count2cost(PRINTERCOUNT_V2 *ptr_counter, int paper_size_a, int paper_size_b,
     copy = &(ptr_counter->photocopy);
     *gray_big = 0;
     *gray_small = 0;
+    *gray_other = print->u16_gray_scale_a[0];
+                print->u16_double_gray_scale_a[0] * 2 +
+                copy->u16_gray_scale_a[0] +
+                copy->u16_double_gray_scale_a[0] * 2;
     *color_big = 0;
     *color_small = 0;
+    *color_other = print->u16_color_a[0];
+                print->u16_double_color_a[0] * 2 +
+                copy->u16_color_a[0] +
+                copy->u16_double_color_a[0] * 2;
 
     // Count print cost
-    for (i = 0; i < kMaxPrtPage; i++)
+    for (i = 1; i < kMaxPrtPage; i++)
     {
         if (i < paper_size_a)
         {
@@ -2599,7 +2611,6 @@ int count2cost(PRINTERCOUNT_V2 *ptr_counter, int paper_size_a, int paper_size_b,
                 copy->u16_double_color_b[i] * 2;
         }
     }
-
 
     return kSuccess;
 }
@@ -2971,7 +2982,7 @@ int setup_state(EDC_CTX* p_ctx)
                     //fprintf(stderr, "ret: %d, value: %s\n", state_ret, new_edc_ip);
                     if (state_ret != kFailure)
                     {
-                        if (inet_addr(new_edc_ip) == kFailure)
+                        if (trim_ipv4(new_edc_ip, kMaxIPLen + 1) == kFailure)
                         {
                             show_line(p_ctx, 3, STR_SETUP_ERROR);
                             buzzer((kMicroPerSecond / 10) * 1);
@@ -2992,7 +3003,7 @@ int setup_state(EDC_CTX* p_ctx)
                     //fprintf(stderr, "ret: %d, value: %s\n", state_ret, new_submask);
                     if (state_ret != kFailure)
                     {
-                        if (inet_addr(new_submask) == kFailure)
+                        if (trim_ipv4(new_edc_ip, kMaxIPLen + 1) == kFailure)
                         {
                             show_line(p_ctx, 3, STR_SETUP_ERROR);
                             buzzer((kMicroPerSecond / 10) * 1);
@@ -3013,7 +3024,7 @@ int setup_state(EDC_CTX* p_ctx)
                     //fprintf(stderr, "ret: %d, value: %s\n", state_ret, new_gateway);
                     if (state_ret != kFailure)
                     {
-                        if (inet_addr(new_gateway) == kFailure)
+                        if (trim_ipv4(new_gateway, kMaxIPLen + 1) == kFailure)
                         {
                             show_line(p_ctx, 3, STR_SETUP_ERROR);
                             buzzer((kMicroPerSecond / 10) * 1);
@@ -3034,7 +3045,7 @@ int setup_state(EDC_CTX* p_ctx)
                     //fprintf(stderr, "ret: %d, value: %s\n", state_ret, new_server_ip);
                     if (state_ret != kFailure)
                     {
-                        if (inet_addr(new_server_ip) == -1)
+                        if (trim_ipv4(new_server_ip, kMaxIPLen + 1) == kFailure)
                         {
                             show_line(p_ctx, 3, STR_SETUP_ERROR);
                             buzzer((kMicroPerSecond / 10) * 1);
@@ -3917,12 +3928,20 @@ int load_employee_list(EMPLOYEE_DATA *p_list, const int list_size,
         list_ptr->init_quota = (int)strtol(temp, NULL, 10);
 
         cur_ptr += (get_len + 1);
-        if ((get_len = get_str_before_char(cur_ptr, kNewLine,
+        if ((get_len = get_str_before_char(cur_ptr, kTab,
                         temp, kMaxReadLineLen)) == kFailure)
         {
             goto LOAD_EMP_FAIL_LINE;
         }
         list_ptr->curr_quota = (int)strtol(temp, NULL, 10);
+
+        cur_ptr += (get_len + 1);
+        if ((get_len = get_str_before_char(cur_ptr, kNewLine,
+                        temp, kMaxReadLineLen)) == kFailure)
+        {
+            goto LOAD_EMP_FAIL_LINE;
+        }
+        list_ptr->color_print = (int)((*temp == '0')?0:1);
 
         list_ptr++;
         line_count++;
@@ -4713,3 +4732,59 @@ void log_thr_func(void)
     return;
 }
 
+int trim_ipv4(char* ipv4, const int len)
+{
+    char tmp_ip[MAX_IP_LEN + 1] = {0};
+    char *ptr;
+    char *new_ptr;
+    int section_flag = kTrue;
+
+    if (!ipv4)
+    {
+        fprintf(stderr, "Paramater Fail\n");
+        return kFailure;
+    }
+
+    if (len > kMaxIPLen + 1)
+    {
+        fprintf(stderr, "Buffer too small Fail\n");
+        return kFailure;
+    }
+
+    ptr = ipv4;
+    memset(tmp_ip, '\0', kMaxIPLen + 1);
+    new_ptr = tmp_ip;
+
+    do
+    {
+        if (section_flag && *ptr == '0')
+        {
+            continue;
+        }
+
+        if (*ptr == kPoint || *ptr == '\0')
+        {
+            if (section_flag == kTrue)
+            {
+                *new_ptr++ = '0';
+            }
+            section_flag = kTrue;
+        }
+        else
+        {
+            section_flag = kFalse;
+        }
+
+        *new_ptr++ = *ptr;
+    }
+    while (++ptr < ipv4 + len);
+
+    new_ptr = '\0';
+    strncpy(ipv4, tmp_ip, len);
+    if (inet_addr(tmp_ip) == kFailure)
+    {
+        return kFailure;
+    }
+
+    return kSuccess;
+}
