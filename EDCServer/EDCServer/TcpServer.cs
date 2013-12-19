@@ -47,6 +47,7 @@ namespace EDCServer
                 EventLog.WriteEntry("EDCAgent", "Close Connect", EventLogEntryType.Information);
                 client.Close();
             }
+
             if (sqlConn.State == ConnectionState.Connecting)
             {
                 sqlConn.Close();
@@ -287,8 +288,10 @@ namespace EDCServer
             string edc_id = plist[1];
             string gray_big = "";
             string gray_small = "";
+            string gray_other = "";
             string color_big = "";
             string color_small = "";
+            string color_other = "";
             int[] paper_size = new int[]{4, 5};     //NOTE default value is here!!!
 
             string sql_select = string.Format("SELECT * FROM [dbo].[DataEDC] WHERE [dbo].[DataEDC].[EDCNO] = '{0}'", edc_id);
@@ -306,8 +309,6 @@ namespace EDCServer
                 {
                     System.Diagnostics.Debug.WriteLine("Write EDC heartbeat to DB error");
                 }
-
-
 
                 string sql_printpay = string.Format("SELECT * FROM [dbo].[DataPrintPay]");
                 cmd_pp = new SqlCommand(sql_printpay, sqlConn);
@@ -336,7 +337,11 @@ namespace EDCServer
                     {
                         gray_small = pp_row["PrintPay"].ToString();
                         // !NOTE! only use gray_small setup to determine whole setup
-                        paper_size = get_smallesr_paper_size(pp_row["PaperType"].ToString());
+                        paper_size = get_smaller_paper_size(pp_row["PaperType"].ToString());
+                    }
+                    else if (pp_row["PrintType"].ToString() == C.kGrayOther)
+                    {
+                        gray_other = pp_row["PrintPay"].ToString();
                     }
                     else if (pp_row["PrintType"].ToString() == C.kColorBig)
                     {
@@ -345,6 +350,10 @@ namespace EDCServer
                     else if (pp_row["PrintType"].ToString() == C.kColorSmall)
                     {
                         color_small = pp_row["PrintPay"].ToString();
+                    }
+                    else if (pp_row["PrintType"].ToString() == C.kColorOther)
+                    {
+                        color_other = pp_row["PrintPay"].ToString();
                     }
                 }
 
@@ -366,7 +375,7 @@ namespace EDCServer
             return edc_list.ToString();
         }
 
-        private int[] get_smallesr_paper_size(string paper_type)
+        private int[] get_smaller_paper_size(string paper_type)
         {
             string[] tokens = paper_type.Split(';');
             int[] smallest_paper_size = new int[2];

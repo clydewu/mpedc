@@ -19,8 +19,10 @@ namespace EDCServer
 
         public const string kGrayBig = "GB";
         public const string kGraySmall = "GS";
+        public const string kGrayOther = "GO";
         public const string kColorBig = "CB";
         public const string kColorSmall = "CS";
+        public const string kColorOther = "CO";
 
         public const string kIniFile = "EDC_server_setup.ini";
         public const string kKeySection = "EDCServer";

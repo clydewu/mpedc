@@ -236,10 +236,12 @@ const char STR_CONTACT_STAFF[] = "請洽管理人員";
 const char STR_PROJECT_CODE[] = "專案代碼:";
 const char STR_QUOTA[] = "額度";
 const char STR_USING[] = "使用中";
-const char STR_MONO_A3[] = "黑大";
-const char STR_MONO_A4[] = "黑小";
-const char STR_COLOR_A3[] = "彩大";
-const char STR_COLOR_A4[] = "彩小";
+const char STR_MONO_BIG[] = "黑大";
+const char STR_MONO_SMALL[] = "黑小";
+const char STR_MONO_OTHER[] = "黑特";
+const char STR_COLOR_BIG[] = "彩大";
+const char STR_COLOR_SMALL[] = "彩小";
+const char STR_COLOR_OTHER[] = "彩特";
 const char STR_REMAIN_SEC[] = "剩秒";
 const char STR_ERROR[] = "發生錯誤";
 const char STR_SETUP_PRT_CON_TYPE[] = "設定COM Port";
@@ -486,7 +488,7 @@ int get_ipv4_from_keypad(EDC_CTX*, const char*, char*, const int, const int);
 int load_server_set(EDC_CTX*, const char*);
 int load_network_set(EDC_CTX*, const char*);
 int set_backlight(EDC_CTX* p_ctx, unsigned char u8_type);
-int show_quota_info(EDC_CTX *p_ctx, int quota, int gb, int gs, int cb, int cs);
+int show_quota_info(EDC_CTX *p_ctx, int quota, int gb, int gs, int go, int cb, int cs, int co);
 
 // List Utilities
 int sync_lists(EDC_CTX*);
@@ -511,7 +513,8 @@ int usage_empty(PRINTERTYPE *p);
 int print_printertype(PRINTERTYPE *);
 int init_printertype(PRINTERTYPE *usage);
 int count2cost(PRINTERCOUNT_V2 *ptr_counter, int paper_size_a, int paper_size_b, 
-        int *gray_big, int *gray_small, int *color_big, int *color_small);
+        int *gray_big, int *gray_small, int *gray_other,
+        int *color_big, int *color_small, int *color_other);
 
 // Network Utilities
 int connect_server(EDC_CTX*);
@@ -577,6 +580,7 @@ int main(void)
     log0(INFO, kModName, __func__, "Start main loop");
     while (kTrue)
     {
+        log1(INFO, kModName, __func__, "State change: %d", ctx.state);
         switch (ctx.state)
         {
         case IDLE:
@@ -1115,7 +1119,7 @@ int init(EDC_CTX *p_ctx)
     }
 
     //log1(INFO, kModName, __func__, "Initialize log setup: %s", LOGLEVLE2STR[INFO]);
-    if (init_log(p_ctx, INFO) != kSuccess)
+    if (init_log(p_ctx, DEBUG) != kSuccess)
     {
         log0(ERROR, kModName, __func__, "Can not create log ctx.");
         return kFailure;
@@ -2195,8 +2199,10 @@ int quota_state(EDC_CTX* p_ctx)
 
     int gb = 0;
     int gs = 0;
+    int go = 0;
     int cb = 0;
     int cs = 0;
+    int co = 0;
 
     unsigned char in_key;
 
@@ -2255,7 +2261,7 @@ int quota_state(EDC_CTX* p_ctx)
     init_printertype(&continue_photocopy_usage);
     memset(action_type, 0, kMaxLineWord + 1);
 
-    if (show_quota_info(p_ctx, curr_quota, gb, gs, cb, cs) != kSuccess)
+    if (show_quota_info(p_ctx, curr_quota, gb, gs, go, cb, cs, co) != kSuccess)
     {
         log0(ERROR, kModName, __func__, "Show quota screen failure");
         return kFailure;
@@ -2274,9 +2280,12 @@ int quota_state(EDC_CTX* p_ctx)
         }
         else
         {
-            if (in_key == kASCIIEject )
+            if (in_key == kASCIIEject  || 
+                in_key == kASCIIClear  ||
+                in_key == kASCIICancel ||
+                in_key == kASCIIEnter  ||
+                (in_key >= kASCIIFirstVisiable && in_key <= kASCIILastVisiable))
             {
-                //User input ENJECT, end statistic
                 enject_or_timeout = 1;
                 break;
             }
@@ -2288,6 +2297,7 @@ int quota_state(EDC_CTX* p_ctx)
             return kFailure;
         }
 
+        log0(ERROR, kModName, __func__, "----- print count -----");
         print_printertype(&(ptr_counter.print));
         /*
          * How to detect scan?
@@ -2303,44 +2313,22 @@ int quota_state(EDC_CTX* p_ctx)
          *    return status correct. So we keep check counter to
          *    verify it's running.
          */
-
-        /*
-        // For Debug
-        fprintf(stderr, "%d || %d || %d ~= %d\n", 
-                ((ptr_counter.u8_work_status & 0x01) == 0), 
-                !usage_same_as(&(ptr_counter.photocopy), &continue_photocopy_usage), 
-                !usage_same_as(&(ptr_counter.print), &continue_print_usage),
-                ( (ptr_counter.u8_work_status & 0x01) == 0
-                || !usage_same_as(&(ptr_counter.photocopy), &continue_photocopy_usage)
-                || !usage_same_as(&(ptr_counter.print), &continue_print_usage) )
-            );
-
-        print_printertype(&(ptr_counter.print));
-        print_printertype(&(ptr_counter.photocopy));
-        count2cost(&ptr_counter, curr_edc->paper_size_a, curr_edc->paper_size_b,
-                &gb, &gs, &cb, &cs);
-        fprintf(stderr, "CLD: cur_quota: %d, gb:%d, gs:%d, cb:%d, cs:%d\n",
-                cur_quota, gb, gs, cb ,cs);
-        */
-
         status_action_flag = ((ptr_counter.u8_work_status & 0x01) == 0)?kTrue:kFalse;
         usage_modified_flag = (!usage_same_as(&(ptr_counter.photocopy), &continue_photocopy_usage)
                           || !usage_same_as(&(ptr_counter.print), &continue_print_usage));
 
-        log2(INFO, kModName, __func__, "Status flag: %d, Modified flag: %d",
+        log2(DEBUG, kModName, __func__, "Status flag: %d, Modified flag: %d",
                 status_action_flag, usage_modified_flag);
 
         if (status_action_flag || usage_modified_flag)
         {
-            log0(ERROR, kModName, __func__, "----- print count -----");
-            print_printertype(&(ptr_counter.print));
             // Action
             stage = 1;
             start_epoch = time(NULL);
             usage_dup(&(ptr_counter.photocopy), &continue_photocopy_usage);
             usage_dup(&(ptr_counter.print), &continue_print_usage);
             count2cost(&ptr_counter, curr_edc->paper_size_a, curr_edc->paper_size_b,
-                    &gb, &gs, &cb, &cs);
+                    &gb, &gs, &go, &cb, &cs, &co);
             if (!usage_same_as(&(ptr_counter.scan), &empty_usage))
             {
                 scan_flag = kTrue;
@@ -2366,7 +2354,7 @@ int quota_state(EDC_CTX* p_ctx)
             //        curr_quota, gb, gs, cb ,cs);
             if (usage_modified_flag == kTrue)
             {
-                if (show_quota_info(p_ctx, curr_quota, gb, gs, cb, cs) != kSuccess)
+                if (show_quota_info(p_ctx, curr_quota, gb, gs, go, cb, cs, co) != kSuccess)
                 {
                     log0(ERROR, kModName, __func__, "Show quota screen failure");
                     return kFailure;
@@ -2404,8 +2392,8 @@ int quota_state(EDC_CTX* p_ctx)
             curr_epoch = time(NULL);
             snprintf(remain_sec_str, kMaxLineWord + 1, "%s: %d",
                     STR_REMAIN_SEC, curr_edc->limit_time - (curr_epoch - start_epoch));
-            left_right_str(remain_line, kMaxLineWord + 1, remain_sec_str, action_type);
-            show_line(p_ctx, 3, remain_line);
+            left_right_str(remain_line, kMaxLineWord + 1, remain_sec_str, p_ctx->edc_id);
+            show_line(p_ctx, 0, remain_line);
         }
 
         usleep(kMicroPerSecond / 2);
@@ -2455,12 +2443,13 @@ int quota_state(EDC_CTX* p_ctx)
     return kSuccess;
 }
 
-int show_quota_info(EDC_CTX *p_ctx, int quota, int gb, int gs, int cb, int cs)
+int show_quota_info(EDC_CTX *p_ctx, int quota, int gb, int gs, int go, int cb, int cs, int co)
 {
     char quota_str[kMaxLineWord + 1];
     char quota_line[kMaxLineWord + 1];
-    char mono_line[kMaxLineWord + 1];
-    char color_line[kMaxLineWord + 1];
+    char big_line[kMaxLineWord + 1];
+    char small_line[kMaxLineWord + 1];
+    char other_line[kMaxLineWord + 1];
 
     if (!p_ctx)
     {
@@ -2478,17 +2467,22 @@ int show_quota_info(EDC_CTX *p_ctx, int quota, int gb, int gs, int cb, int cs)
         return kFailure;
     }
 
-    snprintf(mono_line, kMaxLineWord, "%s%d %s%d",
-            STR_MONO_A3, gb,
-            STR_MONO_A4, gs);
+    snprintf(big_line, kMaxLineWord, "%s%d %s%d",
+            STR_MONO_BIG, gb,
+            STR_COLOR_BIG, gs);
 
-    snprintf(color_line, kMaxLineWord, "%s%d %s%d",
-            STR_COLOR_A3, cb,
-            STR_COLOR_A4, cs);
+    snprintf(small_line, kMaxLineWord, "%s%d %s%d",
+            STR_MONO_SMALL, cb,
+            STR_COLOR_SMALL, cs);
 
-    show_line(p_ctx, 0, quota_line);
-    show_line(p_ctx, 1, mono_line);
-    show_line(p_ctx, 2, color_line);
+    snprintf(other_line, kMaxLineWord, "%s%d %s%d",
+            STR_MONO_OTHER, go,
+            STR_COLOR_OTHER, co);
+
+    //show_line(p_ctx, 0, quota_line);
+    show_line(p_ctx, 1, big_line);
+    show_line(p_ctx, 2, small_line);
+    show_line(p_ctx, 3, other_line);
 
     return kSuccess;
 }
@@ -2532,7 +2526,8 @@ int init_printertype(PRINTERTYPE *usage)
 }
 
 int count2cost(PRINTERCOUNT_V2 *ptr_counter, int paper_size_a, int paper_size_b, 
-        int *gray_big, int *gray_small, int *color_big, int *color_small)
+        int *gray_big, int *gray_small, int *gray_other,
+        int *color_big, int *color_small, int *color_other)
 {
     PRINTERTYPE *print;
     PRINTERTYPE *copy;
@@ -2851,10 +2846,12 @@ int passwd_state(EDC_CTX* p_ctx)
 
     if (strncmp(in_passwd, p_ctx->fn_passwd, kMaxPasswdLen) == 0)
     {
+        log0(INFO, kModName, __func__, "Password correct");
         p_ctx->state = SETUP;
     }
     else
     {
+        log0(INFO, kModName, __func__, "Password incorrect");
         show_line(p_ctx, 2, STR_SETUP_PASSWD_ERROR);
         buzzer(kMicroPerSecond / 10);
         usleep(kMicroPerSecond / 2);
@@ -4669,7 +4666,7 @@ void log_thr_func(void)
             }
 
             snprintf(baklog_path, kMaxPathLen + 1,
-                    "%s%s.%s", kModName, cur_date, kLogSuffix);
+                    "%s%s%s.%s", kLogFolder, kModName, cur_date, kLogSuffix);
 
             close(g_log_fd);
             log1(INFO, kModName, __func__, "Backup log file: %s", baklog_path);
