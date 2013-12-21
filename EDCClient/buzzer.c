@@ -122,7 +122,7 @@ const char kServerIni[] = "./edc_setup.conf";
 const char kNetworkIni[] = "./edc_network.conf";
 const char kSetupIpCmd[] = "./edc_net_setup.sh ./edc_network.conf";
 const char kTempFileSuffix[] = ".tmp";
-const char kLogFolder[] = "./baklog/";
+const char kLogFolder[] = "./log/";
 const char kLogSuffix[] = "log";
 const int kMaxEmpListSize = MAX_EMP_LIST_SIZE;
 const int kMaxEDCListSize = MAX_EDC_LIST_SIZE;
@@ -197,6 +197,8 @@ const int kMaxEDCIDLen = MAX_EDC_ID_LEN;
 const int kMaxConnectTypeLen = 8;
 const int kConnectTypeMin = 0;
 const int kConnectTypeMax = 4;
+const int kMaxSocketPortMin = 1;
+const int kMaxSocketPortMax = 65535;
 const int kMaxPasswdLen = MAX_PASSWD_LEN;
 
 const int kMaxReadLineLen = 512;
@@ -555,7 +557,7 @@ int main(void)
 
     if (init(&ctx))
     {
-        log0(FATAL, kModName, __func__, "Can not connect to the device.");
+        log0(FATAL, kModName, __func__, "initializition failure.");
         goto INIT_FAIL;
     }
     log0(INFO, kModName, __func__, "------------------------------------");
@@ -627,12 +629,8 @@ INIT_FAIL:
         log0(ERROR, kModName, __func__, "Can not set LED.");
     }
 
-    if(lcd_clean_scr(ctx.lkp_ctx) != kSuccess)
-    {
-        log0(ERROR, kModName, __func__, "Can not clean screen.");
-    }
-    quit(&ctx);
     log0(INFO, kModName, __func__, "Program terminate.");
+    quit(&ctx);
     return ret_code;
 }
 
@@ -848,6 +846,8 @@ int append_edc_log(EDC_CTX *p_ctx, const EDC_LOG_TYPE type, const char *content)
             log0(ERROR, kModName, __func__, "Make log string failure");
             return kFailure;
         }
+        log1(INFO, kModName, __func__, "Append EDC Log: %s",
+                p_ctx->edc_tmp_log[p_ctx->edc_log_num]);
         p_ctx->edc_log_num++;
     }
 
@@ -1122,7 +1122,7 @@ int init(EDC_CTX *p_ctx)
     }
 
     //log1(INFO, kModName, __func__, "Initialize log setup: %s", LOGLEVLE2STR[INFO]);
-    if (init_log(p_ctx, DEBUG) != kSuccess)
+    if (init_log(p_ctx, INFO) != kSuccess)
     {
         log0(ERROR, kModName, __func__, "Can not create log ctx.");
         return kFailure;
@@ -1139,6 +1139,13 @@ int init(EDC_CTX *p_ctx)
         return kFailure;
     }
 
+    if (p_ctx->prt_con_type != 0 &&
+        ptr_select(p_ctx->prt_con_type) != kSuccess)
+    {
+        log1(ERROR, kModName, __func__,
+                "Set COM port printer failure: COM%d\n",
+                p_ctx->prt_con_type);
+    }
 
     log0(INFO, kModName, __func__, "Initialize mutesies.");
     if (pthread_mutex_init(&(p_ctx->emp_mutex), NULL) != kSuccess)
@@ -1199,17 +1206,6 @@ int init(EDC_CTX *p_ctx)
         log0(ERROR, kModName, __func__, "Can't Open COM Port");
         return kFailure;
     }
-
-    if (p_ctx->prt_con_type != 0)
-    {
-        if (ptr_select(p_ctx->prt_con_type) != kSuccess)
-        {
-            log1(ERROR, kModName, __func__,
-                    "Set COM port printer failure: COM%d\n",
-                    p_ctx->prt_con_type);
-        }
-    }
-
 
     log1(INFO, kModName, __func__, "Load network setup: %s", kNetworkIni);
     if (load_network_set(p_ctx, kNetworkIni) != kSuccess)
@@ -2301,8 +2297,9 @@ int quota_state(EDC_CTX* p_ctx)
             return kFailure;
         }
 
-        log0(ERROR, kModName, __func__, "----- print count -----");
-        print_printertype(&(ptr_counter.print));
+        //CLD
+        //log0(ERROR, kModName, __func__, "----- print count -----");
+        //print_printertype(&(ptr_counter.print));
         /*
          * How to detect scan?
          * Due to ptr_count_get() can only provide correct status of scan
@@ -2321,7 +2318,7 @@ int quota_state(EDC_CTX* p_ctx)
         usage_modified_flag = (!usage_same_as(&(ptr_counter.photocopy), &continue_photocopy_usage)
                           || !usage_same_as(&(ptr_counter.print), &continue_print_usage));
 
-        log2(DEBUG, kModName, __func__, "Status flag: %d, Modified flag: %d",
+        log2(INFO, kModName, __func__, "Status flag: %d, Modified flag: %d",
                 status_action_flag, usage_modified_flag);
 
         if (status_action_flag || usage_modified_flag)
@@ -2336,17 +2333,8 @@ int quota_state(EDC_CTX* p_ctx)
             if (!usage_same_as(&(ptr_counter.scan), &empty_usage))
             {
                 scan_flag = kTrue;
-                snprintf(action_type, kMaxLineWord + 1, "S");
-            }
-
-            if (!usage_same_as(&(ptr_counter.photocopy), &photocopy_usage))
-            {
-                snprintf(action_type, kMaxLineWord + 1, "C");
-            }
-
-            if (!usage_same_as(&(ptr_counter.print), &print_usage))
-            {
-                snprintf(action_type, kMaxLineWord + 1, "P");
+                log0(DEBUG, kModName, __func__,
+                        "Detect SCAN1 due to counter be modified");
             }
 
             curr_quota = curr_emp->curr_quota
@@ -2370,12 +2358,20 @@ int quota_state(EDC_CTX* p_ctx)
             if (stage == 1)
             {
                 log0(INFO, kModName, __func__, "Action finish.");
-                if (usage_same_as(&(ptr_counter.photocopy), &empty_usage)
-                    && usage_same_as(&(ptr_counter.print), &photocopy_usage)
-                    && usage_same_as(&(ptr_counter.scan), &print_usage))
+                if (usage_same_as(&(ptr_counter.photocopy), &photocopy_usage)
+                    && usage_same_as(&(ptr_counter.print), &print_usage))
                 {
-                    log0(INFO, kModName, __func__, "All counter are not modified.");
+                    log0(DEBUG, kModName, __func__,
+                            "Dectect SCAN2 due to no counters are modified.");
                     scan_flag = kTrue;
+                }
+
+                if (!usage_same_as(&(ptr_counter.scan), &empty_usage))
+                {
+                    scan_flag = kTrue;
+                    log0(DEBUG, kModName, __func__,
+                            "Detect SCAN3 due to counter be modified after scan");
+                    init_printertype(&(ptr_counter.scan));
                 }
 
                 usage_dup(&(ptr_counter.photocopy), &photocopy_usage);
@@ -2473,10 +2469,10 @@ int show_quota_info(EDC_CTX *p_ctx, int quota, int gb, int gs, int go, int cb, i
 
     snprintf(big_line, kMaxLineWord, "%s%d %s%d",
             STR_MONO_BIG, gb,
-            STR_COLOR_BIG, gs);
+            STR_COLOR_BIG, cb);
 
     snprintf(small_line, kMaxLineWord, "%s%d %s%d",
-            STR_MONO_SMALL, cb,
+            STR_MONO_SMALL, gs,
             STR_COLOR_SMALL, cs);
 
     snprintf(other_line, kMaxLineWord, "%s%d %s%d",
@@ -2547,13 +2543,13 @@ int count2cost(PRINTERCOUNT_V2 *ptr_counter, int paper_size_a, int paper_size_b,
     copy = &(ptr_counter->photocopy);
     *gray_big = 0;
     *gray_small = 0;
-    *gray_other = print->u16_gray_scale_a[0];
+    *gray_other = print->u16_gray_scale_a[0] +
                 print->u16_double_gray_scale_a[0] * 2 +
                 copy->u16_gray_scale_a[0] +
                 copy->u16_double_gray_scale_a[0] * 2;
     *color_big = 0;
     *color_small = 0;
-    *color_other = print->u16_color_a[0];
+    *color_other = print->u16_color_a[0] +
                 print->u16_double_color_a[0] * 2 +
                 copy->u16_color_a[0] +
                 copy->u16_double_color_a[0] * 2;
@@ -3068,8 +3064,8 @@ int setup_state(EDC_CTX* p_ctx)
                     {
                         new_server_port = (int)strtol(new_server_port_str, &end_ptr, 10);
                         if (*end_ptr != '\0'
-                                || new_prt_con_type < kConnectTypeMin
-                                || new_prt_con_type > kConnectTypeMax)
+                                || new_server_port < kMaxSocketPortMin
+                                || new_server_port > kMaxSocketPortMax)
                         {
                             show_line(p_ctx, 3, STR_SETUP_ERROR);
                             buzzer((kMicroPerSecond / 10) * 1);
@@ -3144,7 +3140,7 @@ int setup_state(EDC_CTX* p_ctx)
             {
                 show_line(p_ctx, 2, STR_SETUP_WAIT);
                 log1(INFO, kModName, __func__,
-                        "Write to ini: %s\n", kServerIni);
+                        "Write to ini: %s", kServerIni);
                 strncpy(p_ctx->edc_id, new_edc_id, kMaxEDCIDLen+1);
                 strncpy(p_ctx->edc_ip, new_edc_ip, kMaxIPLen+1);
                 strncpy(p_ctx->submask, new_submask, kMaxIPLen+1);
@@ -3214,7 +3210,15 @@ int setup_state(EDC_CTX* p_ctx)
 
                 if (connect_server(p_ctx) != kSuccess)
                 {
-                    log0(ERROR, kModName, __func__, "Connect to agent failure.");
+                    log0(ERROR, kModName, __func__, "Connect to EDCAgent failure.");
+                }
+
+                if (p_ctx->prt_con_type != 0 &&
+                    ptr_select(p_ctx->prt_con_type) != kSuccess)
+                {
+                    log1(ERROR, kModName, __func__,
+                            "Set COM port printer failure: COM%d\n",
+                            p_ctx->prt_con_type);
                 }
 
                 break;
@@ -4717,7 +4721,7 @@ void log_thr_func(void)
         }
         else if (sel_ret == 0)
         {
-            log0(DEBUG, kModName, __func__, "Read stderr timeout.");
+            //log0(DEBUG, kModName, __func__, "Read stderr timeout.");
         }
         else if (FD_ISSET(g_log_pipe[0], &log_fds))
         {
@@ -4732,6 +4736,7 @@ void log_thr_func(void)
     return;
 }
 
+
 int trim_ipv4(char* ipv4, const int len)
 {
     char tmp_ip[MAX_IP_LEN + 1] = {0};
@@ -4741,28 +4746,29 @@ int trim_ipv4(char* ipv4, const int len)
 
     if (!ipv4)
     {
-        fprintf(stderr, "Paramater Fail\n");
+        log0(ERROR, kModName, __func__, "Paramater failure");
         return kFailure;
     }
 
     if (len > kMaxIPLen + 1)
     {
-        fprintf(stderr, "Buffer too small Fail\n");
+        log0(ERROR, kModName, __func__, "Buffer too small");
         return kFailure;
     }
 
     ptr = ipv4;
-    memset(tmp_ip, '\0', kMaxIPLen + 1);
+    memset(tmp_ip, 0, kMaxIPLen + 1);
     new_ptr = tmp_ip;
 
-    do
+    while (ptr < ipv4 + len -1)
     {
         if (section_flag && *ptr == '0')
         {
+            ptr++;
             continue;
         }
 
-        if (*ptr == kPoint || *ptr == '\0')
+        if (*ptr == kPoint)
         {
             if (section_flag == kTrue)
             {
@@ -4776,10 +4782,9 @@ int trim_ipv4(char* ipv4, const int len)
         }
 
         *new_ptr++ = *ptr;
+        ptr++;
     }
-    while (++ptr < ipv4 + len);
 
-    new_ptr = '\0';
     strncpy(ipv4, tmp_ip, len);
     if (inet_addr(tmp_ip) == kFailure)
     {

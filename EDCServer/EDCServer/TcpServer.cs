@@ -236,20 +236,20 @@ namespace EDCServer
 
             while (sql_reader.Read())
             {
-                emp_list.Append(sql_reader["DepartmentName"]);
-                emp_list.Append("\t");
-                emp_list.Append(sql_reader["DepartmentNo"]);
-                emp_list.Append("\t");
-                emp_list.Append(sql_reader["UserNumber"]);
-                emp_list.Append("\t");
-                emp_list.Append(sql_reader["CardNumber"]);
-                emp_list.Append("\t");
-                emp_list.Append(sql_reader["IniQuota"]);
-                emp_list.Append("\t");
-                emp_list.Append(sql_reader["NowQuota"]);
-                emp_list.Append("\t");
-                emp_list.Append(sql_reader["IsColorPrint"]);
-                emp_list.Append("\n");
+                    emp_list.Append(sql_reader["DepartmentName"]);
+                    emp_list.Append("\t");
+                    emp_list.Append(sql_reader["DepartmentNo"]);
+                    emp_list.Append("\t");
+                    emp_list.Append(sql_reader["UserNumber"]);
+                    emp_list.Append("\t");
+                    emp_list.Append(sql_reader["CardNumber"]);
+                    emp_list.Append("\t");
+                    emp_list.Append(sql_reader["IniQuota"]);
+                    emp_list.Append("\t");
+                    emp_list.Append(sql_reader["NowQuota"]);
+                    emp_list.Append("\t");
+                    emp_list.Append(sql_reader["IsColorPrint"]);
+                    emp_list.Append("\n");
             }
             sql_reader.Close();
             emp_list.Insert(0, emp_list.Length.ToString() + "|");
@@ -470,12 +470,23 @@ namespace EDCServer
                             cmd_insert_cc.CommandType = System.Data.CommandType.Text;
                             if (cmd_insert_cc.ExecuteNonQuery() != 1)   
                             {
-                                System.Diagnostics.Debug.WriteLine("Write CopyCount to DB error");
-                                MessageBox.Show("Write CopyCount to DB error");
+                                EventLog.WriteEntry("EDCAgent", "Client thread insert into SEFScanInfo failure." + recv_list[i], EventLogEntryType.SuccessAudit);
                             }
 
                             EventLog.WriteEntry("EDCAgent", "Client thread insert into CopyCount: " + recv_list[i], EventLogEntryType.SuccessAudit);
                         }
+                    }
+                    else if (edc_log.type == "SCAN")
+                    {
+                        string sql_scan = string.Format("INSERT INTO [dbo].[SEFScanInfo] (EDCNO, UserNumber, ProjectNo, ScanDT)" +
+                            "VALUES ( '{0}', '{1}', '{2}', getdate())", edc_log.edc_no, edc_log.emp_no, edc_log.project_no);
+                        SqlCommand cmd_scan = new SqlCommand(sql_scan, sqlConn);
+                        cmd_scan.CommandType = System.Data.CommandType.Text;
+                        if (cmd_scan.ExecuteNonQuery() != 1)
+                        {
+                            EventLog.WriteEntry("EDCAgent", "Client thread insert into SEFScanInfo failure." + recv_list[i], EventLogEntryType.SuccessAudit);
+                        }
+                        EventLog.WriteEntry("EDCAgent", "Client thread insert into SEFScanInfo Success." + recv_list[i], EventLogEntryType.SuccessAudit);
                     }
                 }
             }
