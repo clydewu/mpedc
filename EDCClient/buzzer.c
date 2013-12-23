@@ -36,6 +36,7 @@
 #define MAX_PROJ_LIST_SIZE  (128)
 #define MAX_MEM_EDC_LOG     (256)
 #define MAX_EDC_LOG_LEN     (256)
+#define MAX_STATE_LEN       (16)
 #define MAX_LOG_TYPE_LEN    (16)
 #define MAX_LOG_LEVEL_LEN   (16)
 
@@ -144,6 +145,7 @@ const int kMaxBufferlen = 4096;
 const int kMaxMemEDCLog = MAX_MEM_EDC_LOG;
 const int kMaxEDCLogLen = MAX_EDC_LOG_LEN;
 const int kMaxLogTypeLen = MAX_LOG_TYPE_LEN;
+const int kMaxStateLen = MAX_STATE_LEN;
 const int kMaxHeaderLen= 16;
 const int kMaxYmdHMSLen = 20;
 const int kASCIIFn = 16;
@@ -303,10 +305,18 @@ typedef enum _op_state
     IDLE,
     INVALID_CARD,
     QUOTA,
-    SCANNING,
     SETUP,
     PASSWD
 } OP_STATE;
+
+const char STATE2STR[6][MAX_STATE_LEN] = 
+{
+    "IDLE",
+    "INVALID_CARD",
+    "QUOTA",
+    "SETUP",
+    "PASSWD"
+};
 
 typedef enum _fn_state
 {
@@ -379,7 +389,7 @@ typedef struct _employee_data
     char    card_sn[MAX_CARD_SN_LEN + 1];
     int     init_quota;
     int     curr_quota;
-    int     color_print;
+    int     only_mono;
 } EMPLOYEE_DATA;
 
 typedef struct _edc_data
@@ -408,8 +418,6 @@ typedef struct _edc_ctx
     PLKPCONTEXT     lkp_ctx;
     COM_CTX         com_ctx;
     KEY_CTX         key_ctx;
-
-    int             backlight_flag;
 
     pthread_mutex_t lkp_ctx_mutex;
 
@@ -560,9 +568,7 @@ int main(void)
         log0(FATAL, kModName, __func__, "initializition failure.");
         goto INIT_FAIL;
     }
-    log0(INFO, kModName, __func__, "------------------------------------");
-    log0(INFO, kModName, __func__, "EDC Client initialize OK");
-    log0(INFO, kModName, __func__, "------------------------------------");
+    log0(INFO, kModName, __func__, "===== EDC Client initialize OK =====");
 
     if (set_led(&ctx, kLEDNone) != kSuccess)
     {
@@ -585,7 +591,7 @@ int main(void)
     log0(INFO, kModName, __func__, "Start main loop");
     while (kTrue)
     {
-        log1(INFO, kModName, __func__, "State change: %d", ctx.state);
+        log1(INFO, kModName, __func__, "State change: %s", STATE2STR[ctx.state]);
         switch (ctx.state)
         {
         case IDLE:
@@ -596,9 +602,6 @@ int main(void)
            break;
         case QUOTA:
             ret = quota_state(&ctx);
-            break;
-        case SCANNING:
-            ret = scanning_state(&ctx);
             break;
         case SETUP:
             ret = setup_state(&ctx);
@@ -1122,11 +1125,12 @@ int init(EDC_CTX *p_ctx)
     }
 
     //log1(INFO, kModName, __func__, "Initialize log setup: %s", LOGLEVLE2STR[INFO]);
-    if (init_log(p_ctx, INFO) != kSuccess)
+    if (init_log(p_ctx, DEBUG) != kSuccess)
     {
         log0(ERROR, kModName, __func__, "Can not create log ctx.");
         return kFailure;
     }
+    log0(INFO, kModName, __func__, "===== Log initializition =====");
 
     p_ctx->state = IDLE;
     p_ctx->connected = kFalse;
@@ -1137,14 +1141,6 @@ int init(EDC_CTX *p_ctx)
     {
         log0(ERROR, kModName, __func__, "Load server setup failure.");
         return kFailure;
-    }
-
-    if (p_ctx->prt_con_type != 0 &&
-        ptr_select(p_ctx->prt_con_type) != kSuccess)
-    {
-        log1(ERROR, kModName, __func__,
-                "Set COM port printer failure: COM%d\n",
-                p_ctx->prt_con_type);
     }
 
     log0(INFO, kModName, __func__, "Initialize mutesies.");
@@ -1968,7 +1964,6 @@ int idle_state(EDC_CTX *p_ctx)
         return kFailure;
     }
 
-    log0(INFO, kModName, __func__, "State change: IDLE");
     if (lcd_clean_scr(p_ctx->lkp_ctx) != kSuccess)
     {
         log0(ERROR, kModName, __func__, "Can not clean screen.");
@@ -2003,9 +1998,10 @@ int idle_state(EDC_CTX *p_ctx)
     get_current_time_r(&time_info);
     cur_min = time_info.tm_min;
     backlight_epoch = time(NULL);
+    backlight_flag = kTrue;
 
     show_datetime(p_ctx, &time_info);
-    show_line(p_ctx, 1, STR_PLEASE_CARD);
+    show_line(p_ctx, 1, (cur_edc_num==0)?STR_DISABLE:STR_PLEASE_CARD);
     show_line(p_ctx, 3, cur_connected?STR_ONLINE:STR_OFFLINE);
 
     while (kTrue)
@@ -2048,7 +2044,7 @@ int idle_state(EDC_CTX *p_ctx)
                     log0(ERROR, kModName, __func__, "Can not open backlight.");
                     return kFailure;
                 }
-                backlight_epoch = 0;
+                backlight_epoch = time(NULL);
                 backlight_flag = kTrue;
 
                 show_line(p_ctx, 2, p_ctx->project_code);
@@ -2064,7 +2060,7 @@ int idle_state(EDC_CTX *p_ctx)
                     log0(ERROR, kModName, __func__, "Can not close backlight when timeout.");
                     return kFailure;
                 }
-                p_ctx->backlight_flag = kFalse;
+                backlight_flag = kFalse;
             }
         }
 
@@ -2237,14 +2233,6 @@ int quota_state(EDC_CTX* p_ctx)
         return kFailure;
     }
 
-    // Init print, start to statistic
-    // TODO it will use edc_ctx->color_print in future
-    if (ptr_count_init(p_ctx->lkp_ctx) != kSuccess)
-    {
-        log0(ERROR, kModName, __func__, "Initial print counter failure");
-        return kFailure;
-    }
-
     // is_valid_card() will prepare curr_emp_idx
     curr_emp = &(p_ctx->emp_list[p_ctx->curr_emp_idx]);
     curr_edc = &(p_ctx->edc_list[0]);
@@ -2264,6 +2252,24 @@ int quota_state(EDC_CTX* p_ctx)
     if (show_quota_info(p_ctx, curr_quota, gb, gs, go, cb, cs, co) != kSuccess)
     {
         log0(ERROR, kModName, __func__, "Show quota screen failure");
+        return kFailure;
+    }
+
+    log2(DEBUG, kModName, __func__, "Set COM%d, only mono:%d",
+                p_ctx->prt_con_type, curr_emp->only_mono);
+    if (p_ctx->prt_con_type != 0 &&
+        ptr_select(p_ctx->prt_con_type, curr_emp->only_mono) != kSuccess)
+    {
+        log2(ERROR, kModName, __func__,
+                "Set COM port printer failure: COM%d, only_mono: %d",
+                p_ctx->prt_con_type, curr_emp->only_mono);
+    }
+
+    // Init print, start to statistic
+    // TODO it will use edc_ctx->color_print in future
+    if (ptr_count_init(p_ctx->lkp_ctx) != kSuccess)
+    {
+        log0(ERROR, kModName, __func__, "Initial print counter failure");
         return kFailure;
     }
 
@@ -2753,18 +2759,6 @@ int gen_cost_log(EDC_CTX* p_ctx, const EDC_LOG_TYPE log_type, PRINTERTYPE *usage
     return kSuccess;
 }
 
-int scanning_state(EDC_CTX* p_ctx)
-{
-    if (!p_ctx)
-    {
-        log0(ERROR, kModName, __func__, "Parameter Fail!");
-        return kFailure;
-    }
-
-    return kSuccess;
-}
-
-
 int passwd_state(EDC_CTX* p_ctx)
 {
     unsigned char in_key;
@@ -3213,6 +3207,7 @@ int setup_state(EDC_CTX* p_ctx)
                     log0(ERROR, kModName, __func__, "Connect to EDCAgent failure.");
                 }
 
+                /*
                 if (p_ctx->prt_con_type != 0 &&
                     ptr_select(p_ctx->prt_con_type) != kSuccess)
                 {
@@ -3220,6 +3215,7 @@ int setup_state(EDC_CTX* p_ctx)
                             "Set COM port printer failure: COM%d\n",
                             p_ctx->prt_con_type);
                 }
+                */
 
                 break;
             }
@@ -3231,14 +3227,25 @@ int setup_state(EDC_CTX* p_ctx)
         }
     }
 
-    /*
-    fprintf(stderr, "CLD: EDC_ID: %s.\n", new_edc_id);
-    fprintf(stderr, "CLD: EDC_IP: %s.\n", new_edc_ip);
-    fprintf(stderr, "CLD: SUBMASK: %s.\n", new_submask);
-    fprintf(stderr, "CLD: GATEWAY: %s.\n", new_gateway);
-    fprintf(stderr, "CLD: SERVER_IP: %s.\n", new_server_ip);
-    fprintf(stderr, "CLD: SERVER_PORT: %s.\n", new_server_port);
-    */
+    if (p_ctx->connected)
+    {
+        log0(INFO, kModName, __func__, "Sync lists from Server");
+        if (sync_lists(p_ctx) != kSuccess)
+        {
+            log0(ERROR, kModName, __func__, "Sync lists from server fail!");
+        }
+
+        log0(INFO, kModName, __func__, "Load downloads lists");
+        if (load_local_lists(p_ctx) != kSuccess)
+        {
+            log0(ERROR, kModName, __func__, "Load lists failure!");
+            //TODO should terminate program.
+        }
+    }
+    else
+    {
+        log0(ERROR, kModName, __func__, "Server is disconnected, can't sync lists!");
+    }
 
     // Restart threads
     if (pthread_create(&(p_ctx->sync_list_thr), NULL,
@@ -3945,7 +3952,7 @@ int load_employee_list(EMPLOYEE_DATA *p_list, const int list_size,
         {
             goto LOAD_EMP_FAIL_LINE;
         }
-        list_ptr->color_print = (int)((*temp == '0')?0:1);
+        list_ptr->only_mono = (int)((*temp == '0')?kTrue:kFalse);
 
         list_ptr++;
         line_count++;

@@ -35,6 +35,7 @@ typedef struct
 
 typedef struct
 {
+	//unsigned short		u8_count_type; // count type
 	unsigned short		u16_no_color_a4;
 	unsigned short		u16_no_color_a3;
 	unsigned short		u16_color_a4;
@@ -72,6 +73,8 @@ typedef struct
 	PRINTERTYPE fax;
 	// ±½´y
 	PRINTERTYPE scan;
+	// ¨ä¥L
+	unsigned short u16_other;
 
 	unsigned char u8_work_status;
 } __attribute__((packed)) PRINTERCOUNT_V2, *PPRINTERCOUNT_V2;
@@ -470,11 +473,13 @@ int ptr_count_stop( __in PLKPCONTEXT lkp_ctx );
 	explain | Printer select
 	-------------------------------------
 	param	| u8_select - select use printer.
+			| u8_mode - 0 : all
+			|		  - 1 : only mono
 	-------------------------------------
 	return	| true	: >= zero
 			| false : < zero
 */
-int ptr_select( unsigned char u8_com_select );
+int ptr_select( unsigned char u8_com_select, unsigned char u8_mode );
 
 /*
 	explain | Set DO status
