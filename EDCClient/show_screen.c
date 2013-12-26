@@ -91,14 +91,14 @@ int show_line(CTX *p_ctx, int line, const char *string)
     while (kTrue)
     {
         ret = lcd_clean_buffer(p_ctx->lkp_ctx, 0, kFontHeight * line, kScreenWidth, kFontHeight);
-        if (ret != 0)
+        if (ret < 0)
         {
             fprintf(stderr, "Clean buffer error, line=%d, ret=%d\n", line, ret);
             return kFailure;
         }
 
         ret = lcd_draw_text_16f(p_ctx->lkp_ctx, 0, kFontHeight * line, string, 0);
-        if (ret != 0)
+        if (ret < 0)
         {
             fprintf(stderr, "Draw buffer error, line=%d, ret=%d\n", line, ret);
             return kFailure;
@@ -106,7 +106,7 @@ int show_line(CTX *p_ctx, int line, const char *string)
 
         ret = lcd_print_out(p_ctx->lkp_ctx);
 
-        if (ret == 0)
+        if (ret >= 0)
         {
             break;
         }

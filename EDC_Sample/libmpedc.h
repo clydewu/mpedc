@@ -61,9 +61,6 @@ typedef struct
 	unsigned short u16_double_color_a[11];
 	unsigned short u16_double_color_b[11];
 
-	// ¨ä¥L
-	unsigned short u16_gray_scale_other;
-	unsigned short u16_color_other;
 } __attribute__((packed)) PRINTERTYPE, *PPRINTERTYPE;
 
 typedef struct

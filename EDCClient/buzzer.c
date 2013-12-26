@@ -362,8 +362,10 @@ const char PTN_CARD_TIMEOUT[] = "TIMEOUT %s";
 
 const char PTN_PAPER_GRAY_A[] = "GA%d:%d ";
 const char PTN_PAPER_GRAY_B[] = "GB%d:%d ";
+const char PTN_PAPER_GRAY_OTHER[] = "GO:%d ";
 const char PTN_PAPER_COLOR_A[] = "CA%d:%d ";
 const char PTN_PAPER_COLOR_B[] = "CB%d:%d ";
+const char PTN_PAPER_COLOR_OTHER[] = "CO:%d ";
 
 typedef struct _com_ctx
 {
@@ -2249,6 +2251,23 @@ int quota_state(EDC_CTX* p_ctx)
     init_printertype(&continue_photocopy_usage);
     memset(action_type, 0, kMaxLineWord + 1);
 
+    log2(INFO, kModName, __func__,
+                "Set COM port printer failure: COM%d, mono_only: %d",
+                p_ctx->prt_con_type, curr_emp->only_mono);
+    if (ptr_select(p_ctx->prt_con_type, curr_emp->only_mono) != kSuccess)
+    {
+        log2(INFO, kModName, __func__,
+                "Set COM port printer failure: COM%d, mono_only: %d",
+                p_ctx->prt_con_type, curr_emp->only_mono);
+    }
+
+    // Init print, start to statistic
+    if (ptr_count_init(p_ctx->lkp_ctx) != kSuccess)
+    {
+        log0(ERROR, kModName, __func__, "Initial print counter failure");
+        return kFailure;
+    }
+
     if (show_quota_info(p_ctx, curr_quota, gb, gs, go, cb, cs, co) != kSuccess)
     {
         log0(ERROR, kModName, __func__, "Show quota screen failure");
@@ -2303,9 +2322,12 @@ int quota_state(EDC_CTX* p_ctx)
             return kFailure;
         }
 
+
         //CLD
-        //log0(ERROR, kModName, __func__, "----- print count -----");
-        //print_printertype(&(ptr_counter.print));
+        log0(ERROR, kModName, __func__, "----- print count -----");
+        print_printertype(&(ptr_counter.print));
+        log0(ERROR, kModName, __func__, "----- copy count -----");
+        print_printertype(&(ptr_counter.photocopy));
         /*
          * How to detect scan?
          * Due to ptr_count_get() can only provide correct status of scan
@@ -2499,7 +2521,8 @@ int print_printertype(PRINTERTYPE *usage)
 
     for (i = 0; i < kMaxPrtPage; i++)
     {
-        fprintf(stderr, "%d %d %d %d %d %d %d %d\n",
+        fprintf(stderr, "S%d\t|%d %d %d %d %d %d %d %d\n",
+                i,
                 usage->u16_gray_scale_a[i],
                 usage->u16_gray_scale_b[i],
                 usage->u16_color_a[i],
@@ -2507,8 +2530,12 @@ int print_printertype(PRINTERTYPE *usage)
                 usage->u16_double_gray_scale_a[i],
                 usage->u16_double_gray_scale_b[i],
                 usage->u16_double_color_a[i],
-                usage->u16_double_color_b[i]);
+                usage->u16_double_color_b[i]
+                );
     }
+    fprintf(stderr, "Other: %d %d\n", 
+            usage->u16_gray_scale_other,
+            usage->u16_color_other);
 
     return kSuccess;
 }
@@ -2527,6 +2554,8 @@ int init_printertype(PRINTERTYPE *usage)
         usage->u16_double_color_a[i] = 0;
         usage->u16_double_color_b[i] = 0;
     }
+    usage->u16_gray_scale_other = 0;
+    usage->u16_color_other = 0;
 
     return kSuccess;
 }
@@ -2549,16 +2578,10 @@ int count2cost(PRINTERCOUNT_V2 *ptr_counter, int paper_size_a, int paper_size_b,
     copy = &(ptr_counter->photocopy);
     *gray_big = 0;
     *gray_small = 0;
-    *gray_other = print->u16_gray_scale_a[0] +
-                print->u16_double_gray_scale_a[0] * 2 +
-                copy->u16_gray_scale_a[0] +
-                copy->u16_double_gray_scale_a[0] * 2;
+    *gray_other = print->u16_gray_scale_other + copy->u16_gray_scale_other;
     *color_big = 0;
     *color_small = 0;
-    *color_other = print->u16_color_a[0] +
-                print->u16_double_color_a[0] * 2 +
-                copy->u16_color_a[0] +
-                copy->u16_double_color_a[0] * 2;
+    *color_other = print->u16_gray_scale_other + copy->u16_color_other;
 
     // Count print cost
     for (i = 1; i < kMaxPrtPage; i++)
@@ -2638,6 +2661,8 @@ int usage_dup(PRINTERTYPE *p_src, PRINTERTYPE *p_dest)
         p_dest->u16_double_color_a[i] = p_src->u16_double_color_a[i];
         p_dest->u16_double_color_b[i] = p_src->u16_double_gray_scale_b[i];
     }
+    p_dest->u16_gray_scale_other = p_src->u16_gray_scale_other;
+    p_dest->u16_color_other = p_src->u16_color_other;
 
     return kTrue;
 }
@@ -2667,6 +2692,12 @@ int usage_same_as(PRINTERTYPE *p1, PRINTERTYPE *p2)
         }
     }
 
+    if (p1->u16_gray_scale_other != p2->u16_gray_scale_other ||
+        p1->u16_color_other != p2->u16_color_other)
+    {
+        return kFalse;
+    }
+
     return kTrue;
 }
 
@@ -2694,6 +2725,11 @@ int usage_empty(PRINTERTYPE *p)
             return kFalse;
         }
     }
+    if (p->u16_gray_scale_other != 0 ||
+        p->u16_color_other != 0)
+    {
+        return kFalse;
+    }
 
     return kTrue;
 }
@@ -2705,8 +2741,10 @@ int gen_cost_log(EDC_CTX* p_ctx, const EDC_LOG_TYPE log_type, PRINTERTYPE *usage
     char temp_str[kMaxEDCLogLen];
     int gray_a_sum = 0;
     int gray_b_sum = 0;
+    int gray_other = 0;
     int color_a_sum = 0;
     int color_b_sum = 0;
+    int color_other = 0;
     int i;
 
     if (!p_ctx || !usage)
@@ -2748,6 +2786,20 @@ int gen_cost_log(EDC_CTX* p_ctx, const EDC_LOG_TYPE log_type, PRINTERTYPE *usage
             snprintf(temp_str, kMaxEDCLogLen, PTN_PAPER_COLOR_B, i, color_b_sum);
             strncat(edc_log_content, temp_str, kMaxEDCLogLen);
         }
+    }
+
+    gray_other = usage->u16_gray_scale_other;
+    color_other = usage->u16_color_other;
+    if (gray_other != 0)
+    {
+        snprintf(temp_str, kMaxEDCLogLen, PTN_PAPER_GRAY_OTHER, gray_other);
+        strncat(edc_log_content, temp_str, kMaxEDCLogLen);
+    }
+
+    if (color_other != 0)
+    {
+        snprintf(temp_str, kMaxEDCLogLen, PTN_PAPER_COLOR_OTHER, color_other);
+        strncat(edc_log_content, temp_str, kMaxEDCLogLen);
     }
 
     if (append_edc_log(p_ctx, log_type, edc_log_content))
@@ -3206,16 +3258,6 @@ int setup_state(EDC_CTX* p_ctx)
                 {
                     log0(ERROR, kModName, __func__, "Connect to EDCAgent failure.");
                 }
-
-                /*
-                if (p_ctx->prt_con_type != 0 &&
-                    ptr_select(p_ctx->prt_con_type) != kSuccess)
-                {
-                    log1(ERROR, kModName, __func__,
-                            "Set COM port printer failure: COM%d\n",
-                            p_ctx->prt_con_type);
-                }
-                */
 
                 break;
             }
@@ -3687,6 +3729,10 @@ int read_rfid(EDC_CTX *p_ctx)
     int len = 0;
     char *pos;
     unsigned char pcData[kMaxReadRFIDLen];
+
+    unsigned char temp[kMaxReadRFIDLen];
+    unsigned char *t;
+
     if (!p_ctx)
     {
         log0(ERROR, kModName, __func__, "Parameter Fail!");
@@ -3703,6 +3749,18 @@ int read_rfid(EDC_CTX *p_ctx)
                 "Read from com too long: %d", len);
         return kFailure;
     }
+
+    //CLD test card number
+    t = temp;
+    log0(DEBUG, kModName, __func__, "Read data from RFID hex");
+    for (i = 0; i < len; i++)
+    {
+        *t++ = pcData[i];
+        fprintf(stderr, "%02X ", pcData[i]);
+    }
+    fprintf(stderr, "\n");
+    *t = '\0';
+    log2(DEBUG, kModName, __func__, "Read data from RFID char: '%s'(%d)", temp, len);
 
     if (len > 0 && (pcData[0] == 0xA4 && pcData[1] == 0x01))
     {

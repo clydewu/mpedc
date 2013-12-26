@@ -1,0 +1,1 @@
+0 */3 * * * root /home/test/set_time.sh /home/test/edc_setup.conf &> /dev/null
