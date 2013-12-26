@@ -192,6 +192,15 @@ namespace EDCServer
                         case C.kSyncLogCmd:
                             sync_edc_log(command);
                             break;
+                        case C.kSyncEmpOkCmd:
+                            // Call del_sync_emp of store-producedure
+                            break;
+                        case C.kSyncEDCOkCmd:
+                            // Call del_sync_edc of store-producedure
+                            break;
+                        case C.kSyncProjOkCmd:
+                            // Call del_sync_proj of store-producedure
+                            break;
                         default:
                             break;
                     }
