@@ -572,19 +572,19 @@ int main(void)
     }
     log0(INFO, kModName, __func__, "===== EDC Client initialize OK =====");
 
-    if (set_led(&ctx, kLEDNone) != kSuccess)
+    if (set_led(&ctx, kLEDNone) < kSuccess)
     {
         log0(FATAL, kModName, __func__, "Set LED down failure.");
         goto INIT_FAIL;
     }
 
-    if(lcd_clean_scr(ctx.lkp_ctx) != kSuccess)
+    if(lcd_clean_scr(ctx.lkp_ctx) < kSuccess)
     {
         log0(FATAL, kModName, __func__, "Can not clean screen.");
         goto INIT_FAIL;
     }
 
-    if(lcd_clean(ctx.lkp_ctx) != kSuccess)
+    if(lcd_clean(ctx.lkp_ctx) < kSuccess)
     {
         log0(FATAL, kModName, __func__, "Can not clean screen buffer.");
         goto INIT_FAIL;
@@ -629,7 +629,7 @@ INIT_FAIL:
         log0(ERROR, kModName, __func__, "Can not print error msg to screen.");
     }
 
-    if (set_led(&ctx, kLEDNone) != kSuccess)
+    if (set_led(&ctx, kLEDNone) < kSuccess)
     {
         log0(ERROR, kModName, __func__, "Can not set LED.");
     }
@@ -1966,19 +1966,19 @@ int idle_state(EDC_CTX *p_ctx)
         return kFailure;
     }
 
-    if (lcd_clean_scr(p_ctx->lkp_ctx) != kSuccess)
+    if (lcd_clean_scr(p_ctx->lkp_ctx) < kSuccess)
     {
         log0(ERROR, kModName, __func__, "Can not clean screen.");
         return kFailure;
     }
 
-    if (lcd_clean(p_ctx->lkp_ctx) != kSuccess)
+    if (lcd_clean(p_ctx->lkp_ctx) < kSuccess)
     {
         log0(ERROR, kModName, __func__, "Can not clean screen buffer.");
         return kFailure;
     }
 
-    if (set_led(p_ctx, kLEDBlue) != kSuccess)
+    if (set_led(p_ctx, kLEDBlue) < kSuccess)
     {
         log0(ERROR, kModName, __func__, "Can not set LED.");
         return kFailure;
@@ -2126,19 +2126,19 @@ int invalid_card_state(EDC_CTX *p_ctx)
         return kFailure;
     }
 
-    if(lcd_clean_scr(p_ctx->lkp_ctx) != kSuccess)
+    if(lcd_clean_scr(p_ctx->lkp_ctx) < kSuccess)
     {
         log0(ERROR, kModName, __func__, "Can not clean screen.");
         return kFailure;
     }
 
-    if(lcd_clean(p_ctx->lkp_ctx) != kSuccess)
+    if(lcd_clean(p_ctx->lkp_ctx) < kSuccess)
     {
         log0(ERROR, kModName, __func__, "Can not clean screen buffer.");
         return kFailure;
     }
 
-    if (set_led(p_ctx, kLEDRed) != kSuccess)
+    if (set_led(p_ctx, kLEDRed) < kSuccess)
     {
         log0(ERROR, kModName, __func__, "Can not set LED.");
         return kFailure;
@@ -2215,7 +2215,7 @@ int quota_state(EDC_CTX* p_ctx)
         snprintf(p_ctx->project_code, kMaxProjectCodeLen + 1, "%s", "0000");
     }
 
-    if (set_led(p_ctx, kLEDGreen) != kSuccess)
+    if (set_led(p_ctx, kLEDGreen) < kSuccess)
     {
         log0(ERROR, kModName, __func__, "Can not set LED.");
         return kFailure;
@@ -2254,7 +2254,7 @@ int quota_state(EDC_CTX* p_ctx)
     log2(INFO, kModName, __func__,
                 "Set COM port printer failure: COM%d, mono_only: %d",
                 p_ctx->prt_con_type, curr_emp->only_mono);
-    if (ptr_select(p_ctx->prt_con_type, curr_emp->only_mono) != kSuccess)
+    if (ptr_select(p_ctx->prt_con_type, curr_emp->only_mono) < kSuccess)
     {
         log2(INFO, kModName, __func__,
                 "Set COM port printer failure: COM%d, mono_only: %d",
@@ -2262,7 +2262,7 @@ int quota_state(EDC_CTX* p_ctx)
     }
 
     // Init print, start to statistic
-    if (ptr_count_init(p_ctx->lkp_ctx) != kSuccess)
+    if (ptr_count_init(p_ctx->lkp_ctx) < kSuccess)
     {
         log0(ERROR, kModName, __func__, "Initial print counter failure");
         return kFailure;
@@ -2316,7 +2316,7 @@ int quota_state(EDC_CTX* p_ctx)
             }
         }
 
-        if (ptr_count_get(p_ctx->lkp_ctx, &ptr_counter) != kSuccess)
+        if (ptr_count_get(p_ctx->lkp_ctx, &ptr_counter) < kSuccess)
         {
             log0(ERROR, kModName, __func__, "Get print counter failure");
             return kFailure;
@@ -2453,7 +2453,7 @@ int quota_state(EDC_CTX* p_ctx)
     usleep(kMicroPerSecond * kWaitSecDoubleBuzzer);
     buzzer(kMicroPerSecond * kBuzzerShort); 
     usleep(kMicroPerSecond * kWaitSecStopPtrCount);
-    if (ptr_count_stop(p_ctx->lkp_ctx) != kSuccess)
+    if (ptr_count_stop(p_ctx->lkp_ctx) < kSuccess)
     {
         log0(ERROR, kModName, __func__, "Stop print counter failure");
         return kFailure;
@@ -2825,13 +2825,13 @@ int passwd_state(EDC_CTX* p_ctx)
         return kFailure;
     }
 
-    if (lcd_clean_scr(p_ctx->lkp_ctx) != kSuccess)
+    if (lcd_clean_scr(p_ctx->lkp_ctx) < kSuccess)
     {
         log0(ERROR, kModName, __func__, "Can not clean screen.");
         return kFailure;
     }
 
-    if (lcd_clean(p_ctx->lkp_ctx) != kSuccess)
+    if (lcd_clean(p_ctx->lkp_ctx) < kSuccess)
     {
         log0(ERROR, kModName, __func__, "Can not clean screen buffer.");
         return kFailure;
@@ -2949,19 +2949,19 @@ int setup_state(EDC_CTX* p_ctx)
     }
 
     // Clean screen and set LED
-    if(lcd_clean_scr(p_ctx->lkp_ctx) != kSuccess)
+    if(lcd_clean_scr(p_ctx->lkp_ctx) < kSuccess)
     {
         log0(ERROR, kModName, __func__, "Can not clean screen.");
         return kFailure;
     }
 
-    if(lcd_clean(p_ctx->lkp_ctx) != kSuccess)
+    if(lcd_clean(p_ctx->lkp_ctx) < kSuccess)
     {
         log0(ERROR, kModName, __func__, "Can not clean screen buffer.");
         return kFailure;
     }
 
-    if (set_led(p_ctx, kLEDBlue) != kSuccess)
+    if (set_led(p_ctx, kLEDBlue) < kSuccess)
     {
         log0(ERROR, kModName, __func__, "Can not set LED.");
         return kFailure;
@@ -3542,7 +3542,7 @@ int set_led(EDC_CTX* p_ctx, unsigned int conf)
         while (kTrue)
         {
             ret = device_power(i + lcd_offset, (conf >> i & 0x01));
-            if (ret != kSuccess)
+            if (ret < kSuccess)
             {
                 log2(ERROR, kModName, __func__,
                         "Set LED failure, led: %d, ret: %d", i, ret);
@@ -3590,7 +3590,7 @@ int set_backlight(EDC_CTX* p_ctx, unsigned char u8_type)
             return kFailure;
         }
 
-        if ( ret == kSuccess)
+        if ( ret >= kSuccess)
         {
             break;
         }
@@ -3672,7 +3672,7 @@ int show_line(EDC_CTX *p_ctx, int line, const char *string)
     {
         ret = lcd_clean_buffer(p_ctx->lkp_ctx, 0,
                 kFontHeight * line, kScreenWidth, kFontHeight);
-        if (ret != 0)
+        if (ret < kSuccess)
         {
             log2(ERROR, kModName, __func__,
                     "Clean buffer error, line: %d, ret: %d", line, ret);
@@ -3685,7 +3685,7 @@ int show_line(EDC_CTX *p_ctx, int line, const char *string)
         }
 
         ret = lcd_draw_text_16f(p_ctx->lkp_ctx, 0, kFontHeight * line, string, 0);
-        if (ret != 0)
+        if (ret < kSuccess)
         {
             log2(ERROR, kModName, __func__,
                     "Draw buffer error, line: %d, ret: %d", line, ret);
@@ -3698,7 +3698,7 @@ int show_line(EDC_CTX *p_ctx, int line, const char *string)
         }
 
         ret = lcd_print_out(p_ctx->lkp_ctx);
-        if (ret != 0)
+        if (ret < kSuccess)
         {
             log2(ERROR, kModName, __func__,
                     "Print out LCD error, str: '%s', ret: %d", string, ret);
@@ -3751,6 +3751,7 @@ int read_rfid(EDC_CTX *p_ctx)
     }
 
     //CLD test card number
+    /*
     t = temp;
     log0(DEBUG, kModName, __func__, "Read data from RFID hex");
     for (i = 0; i < len; i++)
@@ -3761,6 +3762,7 @@ int read_rfid(EDC_CTX *p_ctx)
     fprintf(stderr, "\n");
     *t = '\0';
     log2(DEBUG, kModName, __func__, "Read data from RFID char: '%s'(%d)", temp, len);
+    */
 
     if (len > 0 && (pcData[0] == 0xA4 && pcData[1] == 0x01))
     {
