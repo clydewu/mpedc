@@ -31,7 +31,7 @@
 #define MAX_PORT_LEN        (5)
 #define MAX_PASSWD_LEN      (16)
 
-#define MAX_EMP_LIST_SIZE   (1024)
+#define MAX_EMP_LIST_SIZE   (4096)
 #define MAX_EDC_LIST_SIZE   (2)
 #define MAX_PROJ_LIST_SIZE  (128)
 #define MAX_MEM_EDC_LOG     (256)
@@ -392,6 +392,7 @@ typedef struct _employee_data
     int     init_quota;
     int     curr_quota;
     int     only_mono;
+    int     enable;
 } EMPLOYEE_DATA;
 
 typedef struct _edc_data
@@ -407,12 +408,14 @@ typedef struct _edc_data
     int     color_a4;
     int     paper_size_a;
     int     paper_size_b;
+    int     enable;
 } EDC_DATA;
 
 
 typedef struct _project_data
 {
     char    proj_num[MAX_PROJECT_LEN + 1];
+    int     enable;
 } PROJ_DATA;
 
 typedef struct _edc_ctx
@@ -4013,6 +4016,9 @@ int load_employee_list(EMPLOYEE_DATA *p_list, const int list_size,
             goto LOAD_EMP_FAIL_LINE;
         }
         list_ptr->only_mono = (int)((*temp == '0')?kTrue:kFalse);
+
+        // Finally, Enable this item.
+        list_ptr->enable = kTrue;
 
         list_ptr++;
         line_count++;

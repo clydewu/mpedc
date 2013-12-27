@@ -229,6 +229,8 @@ namespace EDCServer
             SqlCommand sql_cmd;
             SqlDataReader sql_reader;
 
+            //呼叫SP
+            //依據資料組成一樣的list, 以\n分隔
             string sql_select = "SELECT " +
                                 "[dbo].[DataDepartment].[DepartmentName]," +
 		                        "[dbo].[DataEmployee].[DepartmentNo]," +
