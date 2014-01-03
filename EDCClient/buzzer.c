@@ -1447,24 +1447,28 @@ int connect_server(EDC_CTX* p_ctx)
 
     addr.sin_family = AF_INET;
     addr.sin_port = htons(p_ctx->server_port);
+    log0(DEBUG, kModName, __func__, "CLD: inet_addr()");
     if ((addr.sin_addr.s_addr = inet_addr(p_ctx->server_ip)) == INADDR_NONE)
     {
         log0(ERROR, kModName, __func__, "Server setup error.");
         return kFailure;
     }
 
+    log0(DEBUG, kModName, __func__, "CLD: open socket()");
     if ((sock = socket(AF_INET, SOCK_STREAM, 0)) < 0)
     {
         log0(ERROR, kModName, __func__, "Open socket error.");
         return kFailure;
     }
 
+    log0(DEBUG, kModName, __func__, "CLD: set_nonblock()");
     if (set_nonblock(sock, kTrue) != kSuccess)
     {
         log0(ERROR, kModName, __func__, "Set socket non-block error.");
         return kFailure;
     }
 
+    log0(DEBUG, kModName, __func__, "CLD: connect()");
     if ((conn_ret = connect(sock, (struct sockaddr *)&addr, sizeof(addr))) == -1)
     {
         if (errno != EINPROGRESS)
@@ -1483,6 +1487,7 @@ int connect_server(EDC_CTX* p_ctx)
                 timeout.tv_sec = 5;
                 timeout.tv_usec = 0;
 
+                log0(DEBUG, kModName, __func__, "CLD: select()");
                 sel_ret = select(sock + 1,
                         NULL, &conn_fds, NULL, &timeout);
                 if (sel_ret < 0 && errno != EINTR)
@@ -1501,6 +1506,7 @@ int connect_server(EDC_CTX* p_ctx)
                 {
                     int valopt;
                     socklen_t int_size = sizeof(socklen_t);
+                    log0(DEBUG, kModName, __func__, "CLD: getsockopt()");
                     if (getsockopt(sock, SOL_SOCKET, SO_ERROR,
                             (void*)&valopt, &int_size) < 0)
                     {
@@ -2254,23 +2260,6 @@ int quota_state(EDC_CTX* p_ctx)
     init_printertype(&continue_photocopy_usage);
     memset(action_type, 0, kMaxLineWord + 1);
 
-    log2(INFO, kModName, __func__,
-                "Set COM port printer failure: COM%d, mono_only: %d",
-                p_ctx->prt_con_type, curr_emp->only_mono);
-    if (ptr_select(p_ctx->prt_con_type, curr_emp->only_mono) < kSuccess)
-    {
-        log2(INFO, kModName, __func__,
-                "Set COM port printer failure: COM%d, mono_only: %d",
-                p_ctx->prt_con_type, curr_emp->only_mono);
-    }
-
-    // Init print, start to statistic
-    if (ptr_count_init(p_ctx->lkp_ctx) < kSuccess)
-    {
-        log0(ERROR, kModName, __func__, "Initial print counter failure");
-        return kFailure;
-    }
-
     if (show_quota_info(p_ctx, curr_quota, gb, gs, go, cb, cs, co) != kSuccess)
     {
         log0(ERROR, kModName, __func__, "Show quota screen failure");
@@ -2279,8 +2268,7 @@ int quota_state(EDC_CTX* p_ctx)
 
     log2(DEBUG, kModName, __func__, "Set COM%d, only mono:%d",
                 p_ctx->prt_con_type, curr_emp->only_mono);
-    if (p_ctx->prt_con_type != 0 &&
-        ptr_select(p_ctx->prt_con_type, curr_emp->only_mono) != kSuccess)
+    if (ptr_select(p_ctx->prt_con_type, curr_emp->only_mono) != kSuccess)
     {
         log2(ERROR, kModName, __func__,
                 "Set COM port printer failure: COM%d, only_mono: %d",
@@ -2288,7 +2276,6 @@ int quota_state(EDC_CTX* p_ctx)
     }
 
     // Init print, start to statistic
-    // TODO it will use edc_ctx->color_print in future
     if (ptr_count_init(p_ctx->lkp_ctx) != kSuccess)
     {
         log0(ERROR, kModName, __func__, "Initial print counter failure");
@@ -3767,6 +3754,7 @@ int read_rfid(EDC_CTX *p_ctx)
     log2(DEBUG, kModName, __func__, "Read data from RFID char: '%s'(%d)", temp, len);
     */
 
+    // Here is Hex to ASCII
     if (len > 0 && (pcData[0] == 0xA4 && pcData[1] == 0x01))
     {
         for(i = 2; i < kMaxCardReadLen - 2; i++)
