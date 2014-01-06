@@ -18,9 +18,6 @@ fi
 mv crontab /etc/cron.d/
 
 
-# update rc
-if [ `md5sum ./rc` != `md5sum /etc/rc ` ]; then
-    mv /etc/rc /etc/rc.`date +%Y%m%d%H%M%S`.bak
-    mv ./rc /etc/rc
-fi
+mv /etc/rc /etc/rc.`date +%Y%m%d%H%M%S`.bak
+mv ./rc /etc/rc
 

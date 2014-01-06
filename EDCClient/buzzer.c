@@ -230,7 +230,7 @@ const char kSyncEDCCmd[] = "SYNC_EDC";
 const char kSyncProjCmd[] = "SYNC_PROJ";
 const char kSyncLogCmd[] = "SYNC_LOG";
 const char kHeartBeat[] = "HEARTBEAT";
-const int kMaxEmpListBuf = (1024 * 1024); // 1M
+const int kMaxEmpListBuf = (4096 * 128); // 1M
 
 const char STR_EMPTY[] = "";
 const char STR_SPACE[] = " ";
@@ -1294,6 +1294,8 @@ int sync_lists(EDC_CTX *p_ctx)
     }
     else
     {
+        log1(INFO, kModName, __func__, "Download Employee list to temp file OK: %s",
+            tmp_emp_file);
         // Download OK, test it.
         if (load_employee_list(tmp_emp_list, MAX_EMP_LIST_SIZE,
                 tmp_emp_file, NULL) < 0)
@@ -1447,28 +1449,24 @@ int connect_server(EDC_CTX* p_ctx)
 
     addr.sin_family = AF_INET;
     addr.sin_port = htons(p_ctx->server_port);
-    log0(DEBUG, kModName, __func__, "CLD: inet_addr()");
     if ((addr.sin_addr.s_addr = inet_addr(p_ctx->server_ip)) == INADDR_NONE)
     {
         log0(ERROR, kModName, __func__, "Server setup error.");
         return kFailure;
     }
 
-    log0(DEBUG, kModName, __func__, "CLD: open socket()");
     if ((sock = socket(AF_INET, SOCK_STREAM, 0)) < 0)
     {
         log0(ERROR, kModName, __func__, "Open socket error.");
         return kFailure;
     }
 
-    log0(DEBUG, kModName, __func__, "CLD: set_nonblock()");
     if (set_nonblock(sock, kTrue) != kSuccess)
     {
         log0(ERROR, kModName, __func__, "Set socket non-block error.");
         return kFailure;
     }
 
-    log0(DEBUG, kModName, __func__, "CLD: connect()");
     if ((conn_ret = connect(sock, (struct sockaddr *)&addr, sizeof(addr))) == -1)
     {
         if (errno != EINPROGRESS)
@@ -1487,7 +1485,6 @@ int connect_server(EDC_CTX* p_ctx)
                 timeout.tv_sec = 5;
                 timeout.tv_usec = 0;
 
-                log0(DEBUG, kModName, __func__, "CLD: select()");
                 sel_ret = select(sock + 1,
                         NULL, &conn_fds, NULL, &timeout);
                 if (sel_ret < 0 && errno != EINTR)
@@ -1506,7 +1503,6 @@ int connect_server(EDC_CTX* p_ctx)
                 {
                     int valopt;
                     socklen_t int_size = sizeof(socklen_t);
-                    log0(DEBUG, kModName, __func__, "CLD: getsockopt()");
                     if (getsockopt(sock, SOL_SOCKET, SO_ERROR,
                             (void*)&valopt, &int_size) < 0)
                     {
@@ -3722,8 +3718,8 @@ int read_rfid(EDC_CTX *p_ctx)
     char *pos;
     unsigned char pcData[kMaxReadRFIDLen];
 
-    unsigned char temp[kMaxReadRFIDLen];
-    unsigned char *t;
+    //unsigned char temp[kMaxReadRFIDLen];
+    //unsigned char *t;
 
     if (!p_ctx)
     {
@@ -4037,8 +4033,8 @@ int load_employee_list(EMPLOYEE_DATA *p_list, const int list_size,
     return line_count;
 
 LOAD_EMP_FAIL_LINE:
-    log1(ERROR, kModName, __func__,
-            "Employee list malformed in line: %d", line_count);
+    log2(ERROR, kModName, __func__,
+            "Employee list malformed in line: %d, %s", line_count, cur_ptr);
     if (p_mutex && pthread_mutex_unlock(p_mutex))
     {
         log0(ERROR, kModName, __func__, "Unlock Employee mutex failure!");
@@ -4198,8 +4194,8 @@ int load_edc_list(EDC_DATA *p_list, const int list_size, const char *file_name, 
     return line_count;
 
 LOAD_EDC_FAIL_LINE:
-    log1(ERROR, kModName, __func__,
-            "EDC list malformed in line %d", line_count);
+    log2(ERROR, kModName, __func__,
+            "EDC list malformed in line %d, %s", line_count, cur_ptr);
     if (p_mutex && pthread_mutex_unlock(p_mutex))
     {
         log0(ERROR, kModName, __func__, "Unlock EDC mutex failure!");
@@ -4260,8 +4256,8 @@ int load_proj_list(PROJ_DATA *p_list, const int list_size, const char *file_name
     return line_count;
 
 LOAD_PROJ_FAIL_LINE:
-    log1(ERROR, kModName, __func__,
-            "Project list malformed in line %d", line_count);
+    log2(ERROR, kModName, __func__,
+            "Project list malformed in line %d, %s", line_count, cur_ptr);
     if (p_mutex && pthread_mutex_unlock(p_mutex))
     {
         log0(ERROR, kModName, __func__, "Unlock project mutex failure!");
