@@ -1724,6 +1724,7 @@ int dl_remote_list(EDC_CTX *p_ctx, const char* sync_cmd, const char* file_name)
     send_len = snprintf(send_buf, kMaxReadLineLen,
             "%s\t%s\n", sync_cmd, p_ctx->edc_id);
 
+    log0(DEBUG, kModName, __func__, "CLD: Send request to Agent...");
     if (sock_write(sock, send_buf, send_len) != send_len)
     {
         log0(ERROR, kModName, __func__, "Send request of lists to server fail.");
@@ -1733,6 +1734,7 @@ int dl_remote_list(EDC_CTX *p_ctx, const char* sync_cmd, const char* file_name)
 
     // If database of server is empty, there will return 0
     // and the list file will be a empty file
+    log0(DEBUG, kModName, __func__, "CLD: Read request to Agent...");
     if ((total_recv = sock_read(sock,
             list_buf, kMaxEmpListBuf)) < 0)
     {
