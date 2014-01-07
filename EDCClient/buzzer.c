@@ -2266,7 +2266,7 @@ int quota_state(EDC_CTX* p_ctx)
 
     log2(DEBUG, kModName, __func__, "Set COM%d, only mono:%d",
                 p_ctx->prt_con_type, curr_emp->only_mono);
-    if (ptr_select(p_ctx->prt_con_type, curr_emp->only_mono) != kSuccess)
+    if (ptr_select(p_ctx->prt_con_type, curr_emp->only_mono) < kSuccess)
     {
         log2(ERROR, kModName, __func__,
                 "Set COM port printer failure: COM%d, only_mono: %d",
@@ -2274,7 +2274,7 @@ int quota_state(EDC_CTX* p_ctx)
     }
 
     // Init print, start to statistic
-    if (ptr_count_init(p_ctx->lkp_ctx) != kSuccess)
+    if (ptr_count_init(p_ctx->lkp_ctx) < kSuccess)
     {
         log0(ERROR, kModName, __func__, "Initial print counter failure");
         return kFailure;
@@ -2330,12 +2330,12 @@ int quota_state(EDC_CTX* p_ctx)
          *    return status correct. So we keep check counter to
          *    verify it's running.
          */
-        status_action_flag = ((ptr_counter.u8_work_status & 0x01) == 0)?kTrue:kFalse;
+        status_action_flag = ((ptr_counter.u8_work_status & 0x01) == 1)?kFalse:kTrue;
         usage_modified_flag = (!usage_same_as(&(ptr_counter.photocopy), &continue_photocopy_usage)
                           || !usage_same_as(&(ptr_counter.print), &continue_print_usage));
 
-        log2(INFO, kModName, __func__, "Status flag: %d, Modified flag: %d",
-                status_action_flag, usage_modified_flag);
+        log3(INFO, kModName, __func__, "Status flag: %8X, Modified flag: %d, u8_status: %8X",
+                status_action_flag, usage_modified_flag, ptr_counter.u8_work_status);
 
         if (status_action_flag || usage_modified_flag)
         {
