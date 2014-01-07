@@ -567,6 +567,7 @@ size_t sock_write(int, const char*, size_t);
 size_t sock_read(int, char*, size_t);
 int set_nonblock(int, int);
 int dl_remote_list(EDC_CTX *p_ctx, const char* sync_cmd, char* buf, const int buf_len);
+int dl_remote_list_to_file(EDC_CTX *p_ctx, const char* sync_cmd, const char* file_name);
 int get_remote_list(EDC_CTX*,const char*,const char*, pthread_mutex_t*);
 
 // Thread
@@ -1295,6 +1296,7 @@ int sync_lists(EDC_CTX *p_ctx)
     char    emp_delta_buf[kMaxEmpListBuf + 1];
     char    edc_delta_buf[kMaxEDCListBuf + 1];
     char    proj_delta_buf[kMaxProjListBuf + 1];
+    EDC_DATA        edc_list_tmp[kMaxEDCListSize];
     int     len;
     char    send_buf[kMaxReadLineLen];
     int     send_len;
@@ -1366,6 +1368,7 @@ int sync_lists(EDC_CTX *p_ctx)
     }
 
     // EDC list
+    /* delta version
     log0(INFO, kModName, __func__, "Download EDC list to buffer");
     len = dl_remote_list(p_ctx, kSyncEdcCmd,
                 edc_delta_buf, kMaxEDCListBuf + 1);
@@ -1417,6 +1420,36 @@ int sync_lists(EDC_CTX *p_ctx)
             {
                 log1(INFO, kModName, __func__, "Save tedcorary EDC list %s failure",
                         tmp_edc_list);
+            }
+        }
+    }
+    */
+    log1(INFO, kModName, __func__, "Download EDC list to temp file: %s",
+            tmp_edc_list);
+    if (dl_remote_list_to_file(p_ctx, kSyncEdcCmd,
+                tmp_edc_list) != kSuccess)
+    {
+        log1(ERROR, kModName, __func__,
+            "Download EDC list to local is failure, use local list: %s",
+            tmp_edc_list);
+    }
+    else
+    {
+        // Download OK, test it.
+        if (load_edc_list(edc_list_tmp, kMaxEDCListSize,
+                tmp_edc_list, NULL) < 0)
+        {
+            log1(ERROR, kModName, __func__,
+                "Downloaded EDC list is malformed, use local list: %s",
+                tmp_edc_list);
+        }
+        else
+        {
+            if (rename(tmp_edc_list, kEDCListFile) != kSuccess)
+            {
+                log2(ERROR, kModName, __func__,
+                    "Move temp file %s to edc file %s failure"
+                    ", use original file\n", tmp_edc_list, kEDCListFile);
             }
         }
     }
@@ -2628,6 +2661,72 @@ int dl_remote_list(EDC_CTX *p_ctx, const char* sync_cmd, char* buf, const int bu
 
     return total_recv;
 }
+
+int dl_remote_list_to_file(EDC_CTX *p_ctx, const char* sync_cmd, const char* file_name)
+{
+    int sock;
+
+    char send_buf[kMaxReadLineLen];
+    int send_len;
+
+    char list_buf[kMaxEmpListBuf];
+    int total_recv;
+
+    FILE *fp_list;
+
+    if (!p_ctx || !sync_cmd || !file_name)
+    {
+        log0(ERROR, kModName, __func__, "Parameter Fail!");
+        return kFailure;
+    }
+
+    if (!p_ctx->connected)
+    {
+        log0(ERROR, kModName, __func__, "Socket disconnect!");
+        return kFailure;
+    }
+
+    sock = p_ctx->server_fd;
+    memset(send_buf, 0, kMaxReadLineLen);
+
+    send_len = snprintf(send_buf, kMaxReadLineLen,
+            "%s\t%s\n", sync_cmd, p_ctx->edc_id);
+
+    log0(DEBUG, kModName, __func__, "CLD: Send request to Agent...");
+    if (sock_write(sock, send_buf, send_len) != send_len)
+    {
+        log0(ERROR, kModName, __func__, "Send request of lists to server fail.");
+        p_ctx->connected = kFalse;
+        return kFailure;
+    }
+
+    // If database of server is empty, there will return 0
+    // and the list file will be a empty file
+    log0(DEBUG, kModName, __func__, "CLD: Read request to Agent...");
+    if ((total_recv = sock_read(sock,
+            list_buf, kMaxEmpListBuf)) < 0)
+    {
+        log0(ERROR, kModName, __func__, "Read response from server fail.");
+        return kFailure;
+    }
+
+    if(!(fp_list = fopen(file_name, "w")))
+    {
+        log0(ERROR, kModName, __func__, "Can not open local temp list.");
+        return kFailure;
+    }
+
+    int ret = fprintf(fp_list, "%s", list_buf);
+    if (ret < total_recv)
+    {
+        log1(ERROR, kModName, __func__, "Write to temp list failure:%d", ret);
+        fclose(fp_list);
+        return kFailure;
+    }
+    fclose(fp_list);
+    return kSuccess;
+}
+
 
 size_t sock_write(int sock, const char *buf, size_t buf_len)
 {

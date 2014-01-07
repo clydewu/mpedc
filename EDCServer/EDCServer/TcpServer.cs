@@ -32,11 +32,19 @@ namespace EDCServer
 
         public void Start()
         {
-            this.sqlConn.Open();
-            this.tcpListener = new TcpListener(IPAddress.Any, port);
-            this.listenThread = new Thread(new ThreadStart(ListenForClients));
-            this.listenThread.Start();
-            EventLog.WriteEntry("EDCAgent", "Start EDCAgent", EventLogEntryType.Information);
+            try
+            {
+                this.sqlConn.Open();
+                this.tcpListener = new TcpListener(IPAddress.Any, port);
+                this.listenThread = new Thread(new ThreadStart(ListenForClients));
+                this.listenThread.Start();
+                EventLog.WriteEntry("EDCAgent", "Start EDCAgent", EventLogEntryType.Information);
+            }
+            catch
+            {
+                EventLog.WriteEntry("EDCAgent", "Error occur when start Agent", EventLogEntryType.Error);
+                Application.Exit();
+            }
         }
 
         public void Close()
@@ -67,15 +75,24 @@ namespace EDCServer
             while (true)
             {
                 //blocks until a client has connected to the server
-                TcpClient client = this.tcpListener.AcceptTcpClient();
-                connectClient.Add(client);
+                try
+                {
+                    TcpClient client = this.tcpListener.AcceptTcpClient();
+                    connectClient.Add(client);
 
-                System.Diagnostics.Debug.WriteLine("New Connect, total:" + connectClient.Count);
-                EventLog.WriteEntry("EDCAgent", "New Client connected", EventLogEntryType.Information);
-                //create a thread to handle communication 
-                //with connected client
-                Thread clientThread = new Thread(new ParameterizedThreadStart(HandleClientComm));
-                clientThread.Start(client);
+                    System.Diagnostics.Debug.WriteLine("New Connect, total:" + connectClient.Count);
+                    EventLog.WriteEntry("EDCAgent", "New Client connected", EventLogEntryType.Information);
+                    //create a thread to handle communication 
+                    //with connected client
+                    Thread clientThread = new Thread(new ParameterizedThreadStart(HandleClientComm));
+                    clientThread.Start(client);
+                }
+                catch
+                {
+                    EventLog.WriteEntry("EDCAgent", "Error occur when establish client thread.", EventLogEntryType.Information);
+                }
+
+
             }
         }
 
@@ -192,13 +209,26 @@ namespace EDCServer
                         case C.kSyncLogCmd:
                             sync_edc_log(command);
                             break;
-                        case C.kSyncEmpOkCmd:
-                            // Call del_sync_emp of store-producedure
+                        case C.kSyncEmpDeltaCmd:
+                            send_str = get_emp_delta(cmd_tokens);
+                            send_buf = encoder.GetBytes(send_str);
+                            System.Diagnostics.Debug.WriteLine(send_str);
+                            clientStream.Write(send_buf, 0, send_buf.Length);
+                            clientStream.Flush();
                             break;
-                        case C.kSyncEDCOkCmd:
+                        case C.kSyncEDCDeltaCmd:
                             // Call del_sync_edc of store-producedure
                             break;
-                        case C.kSyncProjOkCmd:
+                        case C.kSyncProjDeltaCmd:
+                            // Call del_sync_proj of store-producedure
+                            break;
+                        case C.kSyncEmpDeltaOkCmd:
+                            // Call del_sync_emp of store-producedure
+                            break;
+                        case C.kSyncEDCDeltaOkCmd:
+                            // Call del_sync_edc of store-producedure
+                            break;
+                        case C.kSyncProjDeltaOkCmd:
                             // Call del_sync_proj of store-producedure
                             break;
                         default:
@@ -221,6 +251,44 @@ namespace EDCServer
             tcpClient.Close();
             connectClient.Remove(tcpClient);
             EventLog.WriteEntry("EDCAgent", "Client thread terminated", EventLogEntryType.Information);
+        }
+
+        private string get_emp_delta(string[] plist)
+        {
+            StringBuilder emp_list = new StringBuilder();
+            SqlCommand sql_cmd;
+            SqlDataReader sql_reader;
+
+            sql_cmd = new SqlCommand();
+            sql_cmd.Connection = sqlConn;
+            sql_cmd.CommandType = CommandType.StoredProcedure;
+            SqlParameter state = sql_cmd.Parameters.Add("@state", SqlDbType.VarChar, 20);
+            state.Direction = ParameterDirection.Input;
+            state.Value = "get_sync_emp";
+
+            sql_reader = sql_cmd.ExecuteReader();
+            while (sql_reader.Read())
+            {
+                emp_list.Append(sql_reader["DepartmentName"]);
+                emp_list.Append("\t");
+                emp_list.Append(sql_reader["DepartmentNo"]);
+                emp_list.Append("\t");
+                emp_list.Append(sql_reader["UserNumber"]);
+                emp_list.Append("\t");
+                emp_list.Append(sql_reader["CardNumber"]);
+                emp_list.Append("\t");
+                emp_list.Append(sql_reader["IniQuota"]);
+                emp_list.Append("\t");
+                emp_list.Append(sql_reader["NowQuota"]);
+                emp_list.Append("\t");
+                emp_list.Append(sql_reader["IsColorPrint"]);
+                emp_list.Append("\t");
+                emp_list.Append(sql_reader["StatusType"]);
+                emp_list.Append("\n");
+            }
+            sql_reader.Close();
+            emp_list.Insert(0, emp_list.Length.ToString() + "|");
+            return emp_list.ToString();
         }
 
         private string get_employee_list(string[] plist)
