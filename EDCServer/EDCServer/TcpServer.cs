@@ -213,23 +213,28 @@ namespace EDCServer
                             send_str = get_emp_delta(cmd_tokens);
                             send_buf = encoder.GetBytes(send_str);
                             System.Diagnostics.Debug.WriteLine(send_str);
+                            //TODO write error check
                             clientStream.Write(send_buf, 0, send_buf.Length);
                             clientStream.Flush();
                             break;
                         case C.kSyncEDCDeltaCmd:
-                            // Call del_sync_edc of store-producedure
                             break;
                         case C.kSyncProjDeltaCmd:
-                            // Call del_sync_proj of store-producedure
+                            send_str = get_proj_delta(cmd_tokens);
+                            send_buf = encoder.GetBytes(send_str);
+                            System.Diagnostics.Debug.WriteLine(send_str);
+                            //TODO write error check
+                            clientStream.Write(send_buf, 0, send_buf.Length);
+                            clientStream.Flush();
                             break;
                         case C.kSyncEmpDeltaOkCmd:
-                            // Call del_sync_emp of store-producedure
+                            emp_delta_ok(cmd_tokens);
                             break;
                         case C.kSyncEDCDeltaOkCmd:
-                            // Call del_sync_edc of store-producedure
+                            edc_delta_ok(cmd_tokens);
                             break;
                         case C.kSyncProjDeltaOkCmd:
-                            // Call del_sync_proj of store-producedure
+                            proj_delta_ok(cmd_tokens);
                             break;
                         default:
                             break;
@@ -259,12 +264,10 @@ namespace EDCServer
             SqlCommand sql_cmd;
             SqlDataReader sql_reader;
 
-            sql_cmd = new SqlCommand();
-            sql_cmd.Connection = sqlConn;
+            sql_cmd = new SqlCommand("sp_SyncEDCInfo", sqlConn);
             sql_cmd.CommandType = CommandType.StoredProcedure;
-            SqlParameter state = sql_cmd.Parameters.Add("@state", SqlDbType.VarChar, 20);
-            state.Direction = ParameterDirection.Input;
-            state.Value = "get_sync_emp";
+            sql_cmd.Parameters.Add("@state", SqlDbType.VarChar, 20).Value = "get_sync_emp";
+            sql_cmd.Parameters.Add("@EDCNO", SqlDbType.VarChar, 50).Value = plist[1];
 
             sql_reader = sql_cmd.ExecuteReader();
             while (sql_reader.Read())
@@ -289,6 +292,67 @@ namespace EDCServer
             sql_reader.Close();
             emp_list.Insert(0, emp_list.Length.ToString() + "|");
             return emp_list.ToString();
+        }
+
+        private string get_proj_delta(string[] plist)
+        {
+            StringBuilder proj_list = new StringBuilder();
+            SqlCommand sql_cmd;
+            SqlDataReader sql_reader;
+
+            sql_cmd = new SqlCommand("sp_SyncEDCInfo", sqlConn);
+            sql_cmd.CommandType = CommandType.StoredProcedure;
+            sql_cmd.Parameters.Add("@state", SqlDbType.VarChar, 20).Value = "get_sync_prj";
+            sql_cmd.Parameters.Add("@EDCNO", SqlDbType.VarChar, 50).Value = plist[1];
+
+            sql_reader = sql_cmd.ExecuteReader();
+            while (sql_reader.Read())
+            {
+                proj_list.Append(sql_reader["ProjectNO"]);
+                proj_list.Append("\t");
+                proj_list.Append(sql_reader["StatusType"]);
+                proj_list.Append("\n");
+            }
+            sql_reader.Close();
+            proj_list.Insert(0, proj_list.Length.ToString() + "|");
+            return proj_list.ToString();
+        }
+
+        private void emp_delta_ok(string[] plist)
+        {
+            SqlCommand sql_cmd;
+
+            sql_cmd = new SqlCommand("sp_SyncEDCInfo", sqlConn);
+            sql_cmd.CommandType = CommandType.StoredProcedure;
+            sql_cmd.Parameters.Add("@state", SqlDbType.VarChar, 20).Value = "del_sync_emp";
+            sql_cmd.Parameters.Add("@EDCNO", SqlDbType.VarChar, 50).Value = plist[1];
+            sql_cmd.ExecuteNonQuery();
+        }
+
+        private void edc_delta_ok(string[] plist)
+        {
+            EventLog.WriteEntry("EDCAgent", "Not implement this function.", EventLogEntryType.Warning);
+            return;
+            /*
+            SqlCommand sql_cmd;
+             * 
+            sql_cmd = new SqlCommand("sp_SyncEDCInfo", sqlConn);
+            sql_cmd.CommandType = CommandType.StoredProcedure;
+            sql_cmd.Parameters.Add("@state", SqlDbType.VarChar, 20).Value = "del_sync_edc";
+            sql_cmd.Parameters.Add("@EDCNO", SqlDbType.VarChar, 50).Value = plist[1];
+            sql_cmd.ExecuteNonQuery();
+            */
+        }
+
+        private void proj_delta_ok(string[] plist)
+        {
+            SqlCommand sql_cmd;
+
+            sql_cmd = new SqlCommand("sp_SyncEDCInfo", sqlConn);
+            sql_cmd.CommandType = CommandType.StoredProcedure;
+            sql_cmd.Parameters.Add("@state", SqlDbType.VarChar, 20).Value = "del_sync_prj";
+            sql_cmd.Parameters.Add("@EDCNO", SqlDbType.VarChar, 50).Value = plist[1];
+            sql_cmd.ExecuteNonQuery();
         }
 
         private string get_employee_list(string[] plist)

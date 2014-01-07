@@ -235,9 +235,12 @@ const unsigned int kLEDGreen = 8;
 const char kSyncEmpCmd[] = "SYNC_EMP";
 const char kSyncEdcCmd[] = "SYNC_EDC";
 const char kSyncProjCmd[] = "SYNC_PROJ";
-const char kSyncEmpOKCmd[] = "SYNC_EMP_OK";
-const char kSyncEdcOKCmd[] = "SYNC_EDC_OK";
-const char kSyncProjOKCmd[] = "SYNC_PROJ_OK";
+const char kSyncEmpDeltaCmd[] = "SYNC_EMP_DELTA";
+const char kSyncEdcDeltaCmd[] = "SYNC_EDC_DELTA";
+const char kSyncProjDeltaCmd[] = "SYNC_PROJ_DELTA";
+const char kSyncEmpDeltaOKCmd[] = "SYNC_EMP_DELTA_OK";
+const char kSyncEdcDeltaOKCmd[] = "SYNC_EDC_DELTA_OK";
+const char kSyncProjDeltaOKCmd[] = "SYNC_PROJ_DELTA_OK";
 const char kSyncLogCmd[] = "SYNC_LOG";
 const char kHeartBeat[] = "HEARTBEAT";
 
@@ -1294,7 +1297,7 @@ int sync_lists(EDC_CTX *p_ctx)
     char    tmp_edc_list[kMaxPathLen + 1];
     char    tmp_proj_list[kMaxPathLen + 1];
     char    emp_delta_buf[kMaxEmpListBuf + 1];
-    char    edc_delta_buf[kMaxEDCListBuf + 1];
+    //char    edc_delta_buf[kMaxEDCListBuf + 1];
     char    proj_delta_buf[kMaxProjListBuf + 1];
     EDC_DATA        edc_list_tmp[kMaxEDCListSize];
     int     len;
@@ -1311,9 +1314,9 @@ int sync_lists(EDC_CTX *p_ctx)
     snprintf(tmp_edc_list, kMaxPathLen + 1, "%s%s", kEDCListFile, kTempFileSuffix);
     snprintf(tmp_proj_list, kMaxPathLen + 1, "%s%s", kProjListFile, kTempFileSuffix);
 
-    // Employee list
+    // Employee Delta
     log0(INFO, kModName, __func__, "Download Employee list to buffer");
-    len = dl_remote_list(p_ctx, kSyncEmpCmd,
+    len = dl_remote_list(p_ctx, kSyncEmpDeltaCmd,
                 emp_delta_buf, kMaxEmpListBuf + 1);
     if (len < 0)
     {
@@ -1330,21 +1333,23 @@ int sync_lists(EDC_CTX *p_ctx)
         else
         {
             // save current list to local
-            if (save_emp_list(p_ctx->emp_list,p_ctx->emp_num, tmp_edc_list, &p_ctx->emp_mutex) == kSuccess)
+            log1(DEBUG, kModName, __func__, "Load Employee list ok, current num: %d", p_ctx->emp_num);
+            if (save_emp_list(p_ctx->emp_list, p_ctx->emp_num, tmp_emp_list, &p_ctx->emp_mutex) == kSuccess)
             {
                 log2(INFO, kModName, __func__, "Rename Employee list %s -> %s", tmp_emp_list, kEmpListFile);
                 if (rename(tmp_emp_list, kEmpListFile) == kFailure)
                 {
-                    log2(ERROR, kModName, __func__, "Rename Employee list %s -> %s failure",
-                            tmp_emp_list, kEmpListFile);
+                    log3(ERROR, kModName, __func__, "Rename Employee list %s -> %s failure, %s",
+                            tmp_emp_list, kEmpListFile, strerror(errno));
                 }
                 else
                 {
                     memset(send_buf, 0, kMaxReadLineLen);
                     send_len = snprintf(send_buf, kMaxReadLineLen,
-                            "%s\t%s\n", kSyncEmpOKCmd, p_ctx->edc_id);
+                            "%s\t%s\n", kSyncEmpDeltaOKCmd, p_ctx->edc_id);
                     if (p_ctx->connected)
                     {
+                        log0(DEBUG, kModName, __func__, "Send SYNC_EMP_DELTA_OK to Agent");
                         if (sock_write(p_ctx->server_fd, send_buf, send_len) != send_len)
                         {
                             log0(ERROR, kModName, __func__, "Send request of lists to server fail.");
@@ -1354,7 +1359,7 @@ int sync_lists(EDC_CTX *p_ctx)
                     }
                     else
                     {
-                        log0(ERROR, kModName, __func__, "Agent down before get delta list. "
+                        log0(ERROR, kModName, __func__, "Agent down after get employee delta. "
                                 "This may make duplicate of list item.");
                     }
                 }
@@ -1456,7 +1461,7 @@ int sync_lists(EDC_CTX *p_ctx)
 
     // Project list
     log0(INFO, kModName, __func__, "Download Project list to buffer");
-    len = dl_remote_list(p_ctx, kSyncProjCmd,
+    len = dl_remote_list(p_ctx, kSyncProjDeltaCmd,
                 proj_delta_buf, kMaxProjListBuf + 1);
     if (len < 0)
     {
@@ -1473,9 +1478,10 @@ int sync_lists(EDC_CTX *p_ctx)
         else
         {
             // save current list to local
+            log1(DEBUG, kModName, __func__, "Load Proj list ok, current num: %d", p_ctx->proj_num);
             if (save_proj_list(p_ctx->proj_list,p_ctx->proj_num, tmp_proj_list, &p_ctx->proj_mutex) == kSuccess)
             {
-                log2(INFO, kModName, __func__, "Rename Project list %s -> %s", tmp_proj_list, kProjListFile);
+                log2(DEBUG, kModName, __func__, "Rename Project list %s -> %s", tmp_proj_list, kProjListFile);
                 if (rename(tmp_proj_list, kEmpListFile) == kFailure)
                 {
                     log2(ERROR, kModName, __func__, "Rename Project list %s -> %s failure",
@@ -1485,7 +1491,7 @@ int sync_lists(EDC_CTX *p_ctx)
                 {
                     memset(send_buf, 0, kMaxReadLineLen);
                     send_len = snprintf(send_buf, kMaxReadLineLen,
-                            "%s\t%s\n", kSyncProjOKCmd, p_ctx->edc_id);
+                            "%s\t%s\n", kSyncProjDeltaOKCmd, p_ctx->edc_id);
                     if (p_ctx->connected)
                     {
                         if (sock_write(p_ctx->server_fd, send_buf, send_len) != send_len)
@@ -1497,7 +1503,7 @@ int sync_lists(EDC_CTX *p_ctx)
                     }
                     else
                     {
-                        log0(ERROR, kModName, __func__, "Agent down before get delta list. "
+                        log0(ERROR, kModName, __func__, "Agent down after get project delta. "
                                 "This may make duplicate of list item.");
                     }
                 }
@@ -1549,15 +1555,18 @@ int load_emp_delta(EMP_DATA *emp_list, int* list_size, char *delta, const int le
         if ((line_len = get_str_before_char(line_ptr, kNewLine,
                 line_buf, kMaxReadLineLen + 1)) == kFailure)
         {
+            log2(DEBUG, kModName, __func__, "Fetch one line failure: %s(%d)", delta, strlen(line_ptr));
             goto LOAD_EMP_DELTA_FAIL;
         }
-        line_ptr += line_len + 1;
 
         // Fetch field from a line
+        // Didn't use line_buf here, only fetch line_len to offset
         cur_ptr = line_ptr;
+        line_ptr += line_len + 1;
         if ((get_len = get_str_before_char(cur_ptr, kTab,
                         load_emp.dep_name, kMaxDepartmentNameLen + 1)) == kFailure)
         {
+            log2(DEBUG, kModName, __func__, "Fetch dep_name failure: %s(%d)", cur_ptr, strlen(cur_ptr));
             goto LOAD_EMP_DELTA_FAIL;
         }
 
@@ -1565,6 +1574,7 @@ int load_emp_delta(EMP_DATA *emp_list, int* list_size, char *delta, const int le
         if ((get_len = get_str_before_char(cur_ptr, kTab,
                         load_emp.dep_no, kMaxDepartmentNOLen + 1)) == kFailure)
         {
+            log2(DEBUG, kModName, __func__, "Fetch dep_no failure: %s(%d)", cur_ptr, strlen(cur_ptr));
             goto LOAD_EMP_DELTA_FAIL;
         }
 
@@ -1572,6 +1582,7 @@ int load_emp_delta(EMP_DATA *emp_list, int* list_size, char *delta, const int le
         if ((get_len = get_str_before_char(cur_ptr, kTab,
                         load_emp.emp_no, kMaxEmpNOLen + 1)) == kFailure)
         {
+            log2(DEBUG, kModName, __func__, "Fetch emp_no failure: %s(%d)", cur_ptr, strlen(cur_ptr));
             goto LOAD_EMP_DELTA_FAIL;
         }
 
@@ -1579,6 +1590,7 @@ int load_emp_delta(EMP_DATA *emp_list, int* list_size, char *delta, const int le
         if ((get_len = get_str_before_char(cur_ptr, kTab,
                         load_emp.card_sn, kMaxCardSNLen + 1)) == kFailure)
         {
+            log2(DEBUG, kModName, __func__, "Fetch card_sn failure: %s(%d)", cur_ptr, strlen(cur_ptr));
             goto LOAD_EMP_DELTA_FAIL;
         }
 
@@ -1586,6 +1598,7 @@ int load_emp_delta(EMP_DATA *emp_list, int* list_size, char *delta, const int le
         if ((get_len = get_str_before_char(cur_ptr, kTab,
                         temp_buf, kMaxReadLineLen)) == kFailure)
         {
+            log2(DEBUG, kModName, __func__, "Fetch init_quota failure: %s(%d)", cur_ptr, strlen(cur_ptr));
             goto LOAD_EMP_DELTA_FAIL;
         }
         load_emp.init_quota = (int)strtol(temp_buf, NULL, 10);
@@ -1594,6 +1607,7 @@ int load_emp_delta(EMP_DATA *emp_list, int* list_size, char *delta, const int le
         if ((get_len = get_str_before_char(cur_ptr, kTab,
                         temp_buf, kMaxReadLineLen)) == kFailure)
         {
+            log2(DEBUG, kModName, __func__, "Fetch curr_quota failure: %s(%d)", cur_ptr, strlen(cur_ptr));
             goto LOAD_EMP_DELTA_FAIL;
         }
         load_emp.curr_quota = (int)strtol(temp_buf, NULL, 10);
@@ -1602,14 +1616,17 @@ int load_emp_delta(EMP_DATA *emp_list, int* list_size, char *delta, const int le
         if ((get_len = get_str_before_char(cur_ptr, kTab,
                         temp_buf, kMaxReadLineLen)) == kFailure)
         {
+            log2(DEBUG, kModName, __func__, "Fetch only_mono failure: %s(%d)", cur_ptr, strlen(cur_ptr));
             goto LOAD_EMP_DELTA_FAIL;
         }
         load_emp.only_mono = (int)((*temp_buf == '0')?kTrue:kFalse);
 
         cur_ptr += (get_len + 1);
+        log2(DEBUG, kModName, __func__, "Fetch delta_action: %s(%d)", cur_ptr, strlen(cur_ptr));
         if ((get_len = get_str_before_char(cur_ptr, kNewLine,
                         temp_buf, kMaxReadLineLen)) == kFailure)
         {
+            log2(DEBUG, kModName, __func__, "Fetch delta_action failure: %s(%d)", cur_ptr, strlen(cur_ptr));
             goto LOAD_EMP_DELTA_FAIL;
         }
         tmp_int = (int)strtol(temp_buf, NULL, 10);
@@ -1622,6 +1639,7 @@ int load_emp_delta(EMP_DATA *emp_list, int* list_size, char *delta, const int le
         switch (delta_action)
         {
             case NEW:
+                log1(DEBUG, kModName, __func__, "Add Employee to list: %s", load_emp.emp_no);
                 if (*list_size >= kMaxEmpListSize)
                 {
                     log1(ERROR, kModName, __func__, "Employee list have no empty space, "
@@ -1634,6 +1652,7 @@ int load_emp_delta(EMP_DATA *emp_list, int* list_size, char *delta, const int le
                 }
                 break;
             case MODIFY:
+                log1(DEBUG, kModName, __func__, "Edit Employee to list: %s", load_emp.emp_no);
                 target_idx = emp_list_find_index(emp_list, *list_size, load_emp.emp_no);
                 if (target_idx < 0)
                 {
@@ -1646,6 +1665,7 @@ int load_emp_delta(EMP_DATA *emp_list, int* list_size, char *delta, const int le
                 }
                 break;
             case DELETE:
+                log1(DEBUG, kModName, __func__, "Delete Employee to list: %s", load_emp.emp_no);
                 target_idx = emp_list_find_index(emp_list, *list_size, load_emp.emp_no);
                 if (target_idx < 0)
                 {
@@ -1680,8 +1700,8 @@ int load_emp_delta(EMP_DATA *emp_list, int* list_size, char *delta, const int le
     return line_count;
 
 LOAD_EMP_DELTA_FAIL:
-    log1(ERROR, kModName, __func__,
-            "Employee list malformed in line: %d", line_count);
+    log2(ERROR, kModName, __func__,
+            "Employee list malformed in line: %d, %s", line_count, cur_ptr);
     if (p_mutex && pthread_mutex_unlock(p_mutex))
     {
         log0(ERROR, kModName, __func__, "Unlock Employee mutex failure!");
@@ -1705,6 +1725,7 @@ int emp_list_find_index(const EMP_DATA *p_list, int list_size, const char* emp_n
         {
             return i;
         }
+        i++;
     }
 
     return kFailure;
@@ -1737,7 +1758,7 @@ int save_emp_list(EMP_DATA *p_list, int list_size, const char *file_name, pthrea
         return kFailure;
     }
 
-    while (emp_ptr - p_list <= list_size)
+    while (emp_ptr - p_list < list_size)
     {
         ret = fprintf(fp_list, "%s\t%s\t%s\t%s\t%d\t%d\t%d\n",
                 emp_ptr->dep_name, emp_ptr->dep_no,
@@ -1806,9 +1827,9 @@ int load_edc_delta(EDC_DATA *edc_list, int *list_size, char *delta, const int le
         {
             goto LOAD_EDC_DELTA_FAIL;
         }
-        line_ptr += line_len + 1;
 
         cur_ptr = line_buf;
+        line_ptr += line_len + 1;
         if ((get_len = get_str_before_char(cur_ptr, kTab,
                         load_edc.edc_id, MAX_EDC_ID_LEN + 1)) == kFailure)
         {
@@ -1992,6 +2013,7 @@ int edc_list_find_index(const EDC_DATA *edc_list, int list_size, const char* edc
         {
             return i;
         }
+        i++;
     }
 
     return kFailure;
@@ -2024,7 +2046,7 @@ int save_edc_list(EDC_DATA *p_list, int list_size, const char *file_name, pthrea
         return kFailure;
     }
 
-    while (edc_ptr - p_list <= list_size)
+    while (edc_ptr - p_list < list_size)
     {
         ret = fprintf(fp_list, "%s\t%s\t%s\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d\n",
                 edc_ptr->edc_id, edc_ptr->edc_ip, edc_ptr->printer_ip,
@@ -2093,14 +2115,17 @@ int load_proj_delta(PROJ_DATA *proj_list, int *list_size, char *delta, const int
         if ((line_len = get_str_before_char(line_ptr, kNewLine,
                 line_buf, kMaxReadLineLen + 1)) == kFailure)
         {
+            log2(DEBUG, kModName, __func__, "Fetch one line failure: %s(%d)", delta, strlen(line_ptr));
             goto LOAD_PROJ_DELTA_FAIL;
         }
-        line_ptr += line_len + 1;
 
-        cur_ptr = line_buf;
-        if ((get_len = get_str_before_char(cur_ptr, kNewLine,
+        cur_ptr = line_ptr;
+        line_ptr += line_len + 1;
+        log2(DEBUG, kModName, __func__, "Fetch one line proj: %s(%d)", cur_ptr, strlen(cur_ptr));
+        if ((get_len = get_str_before_char(cur_ptr, kTab,
                         load_proj.proj_num, kMaxProjectCodeLen + 1)) == kFailure)
         {
+            log2(DEBUG, kModName, __func__, "Fetch proj_num failure: %s(%d)", cur_ptr, strlen(cur_ptr));
             goto LOAD_PROJ_DELTA_FAIL;
         }
 
@@ -2108,6 +2133,7 @@ int load_proj_delta(PROJ_DATA *proj_list, int *list_size, char *delta, const int
         if ((get_len = get_str_before_char(cur_ptr, kNewLine,
                         temp_buf, kMaxReadLineLen)) == kFailure)
         {
+            log2(DEBUG, kModName, __func__, "Fetch delta_action failure: %s(%d)", cur_ptr, strlen(cur_ptr));
             goto LOAD_PROJ_DELTA_FAIL;
         }
         tmp_int = (int)strtol(temp_buf, NULL, 10);
@@ -2120,6 +2146,7 @@ int load_proj_delta(PROJ_DATA *proj_list, int *list_size, char *delta, const int
         switch (delta_action)
         {
             case NEW:
+                log1(DEBUG, kModName, __func__, "Add Project to list: %s", load_proj.proj_num);
                 if (*list_size >= kMaxProjListSize)
                 {
                     log1(ERROR, kModName, __func__, "PROJ list have no empty space, "
@@ -2132,7 +2159,9 @@ int load_proj_delta(PROJ_DATA *proj_list, int *list_size, char *delta, const int
                 }
                 break;
             case MODIFY:
+                log1(DEBUG, kModName, __func__, "Edit Project to list: %s", load_proj.proj_num);
                 target_idx = proj_list_find_index(proj_list, *list_size, load_proj.proj_num);
+                log0(DEBUG, kModName, __func__, "Find project in list!");
                 if (target_idx < 0)
                 {
                     log1(ERROR, kModName, __func__,
@@ -2144,6 +2173,7 @@ int load_proj_delta(PROJ_DATA *proj_list, int *list_size, char *delta, const int
                 }
                 break;
             case DELETE:
+                log1(DEBUG, kModName, __func__, "Delete Project to list: %s", load_proj.proj_num);
                 target_idx = proj_list_find_index(proj_list, *list_size, load_proj.proj_num);
                 if (target_idx < 0)
                 {
@@ -2203,6 +2233,7 @@ int proj_list_find_index(const PROJ_DATA *proj_list, int list_size, const char* 
         {
             return i;
         }
+        i++;
     }
 
     return kFailure;
@@ -2235,7 +2266,7 @@ int save_proj_list(PROJ_DATA *p_list, int list_size, const char *file_name, pthr
         return kFailure;
     }
 
-    while (proj_ptr - p_list <= list_size)
+    while (proj_ptr - p_list < list_size)
     {
         ret = fprintf(fp_list, "%s\n",
                 proj_ptr->proj_num
@@ -2692,7 +2723,6 @@ int dl_remote_list_to_file(EDC_CTX *p_ctx, const char* sync_cmd, const char* fil
     send_len = snprintf(send_buf, kMaxReadLineLen,
             "%s\t%s\n", sync_cmd, p_ctx->edc_id);
 
-    log0(DEBUG, kModName, __func__, "CLD: Send request to Agent...");
     if (sock_write(sock, send_buf, send_len) != send_len)
     {
         log0(ERROR, kModName, __func__, "Send request of lists to server fail.");
@@ -2702,7 +2732,6 @@ int dl_remote_list_to_file(EDC_CTX *p_ctx, const char* sync_cmd, const char* fil
 
     // If database of server is empty, there will return 0
     // and the list file will be a empty file
-    log0(DEBUG, kModName, __func__, "CLD: Read request to Agent...");
     if ((total_recv = sock_read(sock,
             list_buf, kMaxEmpListBuf)) < 0)
     {
@@ -4873,6 +4902,7 @@ int get_str_before_char(const char* line, const char chr, char* dest, int dest_l
     ptr = strchr(line, chr);
     if (!ptr)
     {
+        log2(DEBUG, kModName, __func__, "Can find char %c in %s", chr, line);
         return kFailure;
     }
 
