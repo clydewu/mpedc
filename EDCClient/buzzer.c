@@ -3718,8 +3718,6 @@ int read_rfid(EDC_CTX *p_ctx)
     char *pos;
     unsigned char pcData[kMaxReadRFIDLen];
 
-    //unsigned char temp[kMaxReadRFIDLen];
-    //unsigned char *t;
 
     if (!p_ctx)
     {
@@ -3739,7 +3737,8 @@ int read_rfid(EDC_CTX *p_ctx)
     }
 
     //CLD test card number
-    /*
+    unsigned char temp[kMaxReadRFIDLen];
+    unsigned char *t;
     t = temp;
     log0(DEBUG, kModName, __func__, "Read data from RFID hex");
     for (i = 0; i < len; i++)
@@ -3749,8 +3748,8 @@ int read_rfid(EDC_CTX *p_ctx)
     }
     fprintf(stderr, "\n");
     *t = '\0';
-    log2(DEBUG, kModName, __func__, "Read data from RFID char: '%s'(%d)", temp, len);
-    */
+    log1(DEBUG, kModName, __func__, "Read data from RFID, len: %d", len);
+    // A4 01 FD 12 1C 00 F8 FF 12 E0 90 00
 
     // Here is Hex to ASCII
     if (len > 0 && (pcData[0] == 0xA4 && pcData[1] == 0x01))
