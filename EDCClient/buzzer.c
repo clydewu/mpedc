@@ -31,24 +31,27 @@
 #define MAX_PORT_LEN        (5)
 #define MAX_PASSWD_LEN      (16)
 
+#define MAX_LIST_LEN        (128)
 #define MAX_EMP_LIST_SIZE   (4096)
 #define MAX_EDC_LIST_SIZE   (2)
 #define MAX_PROJ_LIST_SIZE  (128)
+
 #define MAX_MEM_EDC_LOG     (256)
 #define MAX_EDC_LOG_LEN     (256)
 #define MAX_STATE_LEN       (16)
 #define MAX_LOG_TYPE_LEN    (16)
 #define MAX_LOG_LEVEL_LEN   (16)
 
-// This is only for syntax highlight of vim in Mac OS
+// This is only for syntax check, MacOSX didn't have this define
 #ifndef MSG_NOSIGNAL
 #define MSG_NOSIGNAL 0x2000
 #endif
 
 // log macro Function
-// Wht use macro here?
-// Cause of exp should be combine to the 2nd argument of frpintf
-// directly (Instead of be a %s)
+// Qus: Why use macro here?
+// Ans: You can't expect types of parameters.
+//      And there is no 'Generic Program' mechanism in pure C.
+//
 // And please always note THIS IS A MARCO, NOT FUNCTION!!!
 #define log0(lv, mod_name, func_name, exp)          \
 {                                                   \
@@ -127,7 +130,14 @@ const char kLogFolder[] = "./log/";
 const char kLogSuffix[] = "log";
 const int kMaxEmpListSize = MAX_EMP_LIST_SIZE;
 const int kMaxEDCListSize = MAX_EDC_LIST_SIZE;
-const int kMaxProjListSize = MAX_PROJECT_LEN;
+const int kMaxProjListSize = MAX_PROJ_LIST_SIZE;
+
+const int kMaxDepartmentNameLen = MAX_DEP_NAME_LEN;
+const int kMaxDepartmentNOLen = MAX_DEP_NO_LEN;
+const int kMaxCardSNLen = MAX_CARD_SN_LEN;
+const int kMaxEDCIDLen = MAX_EDC_ID_LEN;
+const int kMaxProjectCodeLen = MAX_PROJECT_LEN;
+const int kMaxEmpNOLen = MAX_EMP_NO_LEN;
 
 const int kSuccess = 0;
 const int kFailure = -1;
@@ -140,7 +150,6 @@ const int kScreenHeight = 64;
 const int kMaxScreenLine = 4;
 const int kMaxLineWord = 16;
 const int kMicroPerSecond = 1000000;
-const int kMaxCardSNLen = MAX_CARD_SN_LEN;
 const int kMaxBufferlen = 4096;
 const int kMaxMemEDCLog = MAX_MEM_EDC_LOG;
 const int kMaxEDCLogLen = MAX_EDC_LOG_LEN;
@@ -187,7 +196,6 @@ const char kSetupSelfIP[] = "ip";
 const char kSetupSubmask[] = "submask";
 const char kSetupGateway[] = "gateway";
 
-const int kMaxProjectCodeLen = MAX_PROJECT_LEN;
 
 const char kDefINIFile[] = "./comtest.ini";
 const int kMaxCOMPortLen = MAX_COM_PORT_LEN;
@@ -195,7 +203,6 @@ const int kMaxCOMCmdBuffer = MAX_COM_CMD_BUFFER;
 const char kSendComSignal[] = {0x80, 0xA4, 0x00, 0x02, 0x09};
 const int kMaxReadRFIDLen = 256;
 const int kMaxCardReadLen = 12;
-const int kMaxEDCIDLen = MAX_EDC_ID_LEN;
 const int kMaxConnectTypeLen = 8;
 const int kConnectTypeMin = 0;
 const int kConnectTypeMax = 4;
@@ -226,11 +233,20 @@ const unsigned int kLEDYellow = 4;
 const unsigned int kLEDGreen = 8;
 
 const char kSyncEmpCmd[] = "SYNC_EMP";
-const char kSyncEDCCmd[] = "SYNC_EDC";
+const char kSyncEdcCmd[] = "SYNC_EDC";
 const char kSyncProjCmd[] = "SYNC_PROJ";
+const char kSyncEmpDeltaCmd[] = "SYNC_EMP_DELTA";
+const char kSyncEdcDeltaCmd[] = "SYNC_EDC_DELTA";
+const char kSyncProjDeltaCmd[] = "SYNC_PROJ_DELTA";
+const char kSyncEmpDeltaOKCmd[] = "SYNC_EMP_DELTA_OK";
+const char kSyncEdcDeltaOKCmd[] = "SYNC_EDC_DELTA_OK";
+const char kSyncProjDeltaOKCmd[] = "SYNC_PROJ_DELTA_OK";
 const char kSyncLogCmd[] = "SYNC_LOG";
 const char kHeartBeat[] = "HEARTBEAT";
-const int kMaxEmpListBuf = (4096 * 128); // 1M
+const int kMaxListLine = MAX_LIST_LEN;
+const int kMaxEmpListBuf = (MAX_EMP_LIST_SIZE * MAX_LIST_LEN);
+const int kMaxEDCListBuf = (MAX_EDC_LIST_SIZE * MAX_LIST_LEN);
+const int kMaxProjListBuf = (MAX_PROJ_LIST_SIZE * MAX_LIST_LEN);
 
 const char STR_EMPTY[] = "";
 const char STR_SPACE[] = " ";
@@ -293,6 +309,13 @@ enum RET{
         RET_ERR_READER_FILE,       // 開啟Reader失敗
         RET_ERR_UNKNOWN_READER     // 未知的Reader錯誤
 };
+
+typedef enum _delta_action
+{
+    NEW,
+    MODIFY,
+    DELETE
+} DELTA_ACTION;
 
 typedef struct
 {
@@ -383,7 +406,7 @@ typedef struct _key_ctx
     char cur_key;
 } KEY_CTX;
 
-typedef struct _employee_data
+typedef struct _emp_data
 {
     char    dep_name[MAX_DEP_NAME_LEN + 1];
     char    dep_no[MAX_DEP_NO_LEN + 1];
@@ -392,8 +415,7 @@ typedef struct _employee_data
     int     init_quota;
     int     curr_quota;
     int     only_mono;
-    int     enable;
-} EMPLOYEE_DATA;
+} EMP_DATA;
 
 typedef struct _edc_data
 {
@@ -408,14 +430,12 @@ typedef struct _edc_data
     int     color_a4;
     int     paper_size_a;
     int     paper_size_b;
-    int     enable;
 } EDC_DATA;
 
 
 typedef struct _project_data
 {
     char    proj_num[MAX_PROJECT_LEN + 1];
-    int     enable;
 } PROJ_DATA;
 
 typedef struct _edc_ctx
@@ -443,7 +463,7 @@ typedef struct _edc_ctx
     int             connected;
 
     int             emp_num;
-    EMPLOYEE_DATA   emp_list[MAX_EMP_LIST_SIZE];
+    EMP_DATA   emp_list[MAX_EMP_LIST_SIZE];
     int             curr_emp_idx;
     pthread_mutex_t emp_mutex;
 
@@ -511,10 +531,19 @@ int trim_ipv4(char* ipv4, const int len);
 // List Utilities
 int sync_lists(EDC_CTX*);
 int load_local_lists(EDC_CTX*);
-int load_employee_list(EMPLOYEE_DATA*, const int, const char*, pthread_mutex_t*);
+int load_employee_list(EMP_DATA*, const int, const char*, pthread_mutex_t*);
 int load_edc_list(EDC_DATA*, const int, const char*, pthread_mutex_t*);
 int load_proj_list(PROJ_DATA*, const int, const char*, pthread_mutex_t*);
+int load_emp_delta(EMP_DATA *emp_list, int* list_size, char *delta, const int len, pthread_mutex_t *p_mutex);
+int load_edc_delta(EDC_DATA *edc_ctx, int* list_size, char *delta, const int len, pthread_mutex_t *p_mutex);
+int load_proj_delta(PROJ_DATA *proj_ctx, int* list_size, char *delta, const int len, pthread_mutex_t *p_mutex);
 int get_str_before_char(const char*, const char, char*, int);
+int emp_list_find_index(const EMP_DATA *p_list, int list_size, const char* emp_no);
+int edc_list_find_index(const EDC_DATA *p_list, int list_size, const char* edc_id);
+int proj_list_find_index(const PROJ_DATA *p_list, int list_size, const char* proj_num);
+int save_emp_list(EMP_DATA *p_list, int list_size, const char *file_name, pthread_mutex_t *p_mutex);
+int save_edc_list(EDC_DATA *p_list, int list_size, const char *file_name, pthread_mutex_t *p_mutex);
+int save_proj_list(PROJ_DATA *p_list, int list_size, const char *file_name, pthread_mutex_t *p_mutex);
 
 // EDC log Utilities
 int sync_log(EDC_CTX*);
@@ -539,7 +568,8 @@ int connect_server(EDC_CTX*);
 size_t sock_write(int, const char*, size_t);
 size_t sock_read(int, char*, size_t);
 int set_nonblock(int, int);
-int dl_remote_list(EDC_CTX*, const char*, const char*);
+int dl_remote_list(EDC_CTX *p_ctx, const char* sync_cmd, char* buf, const int buf_len);
+int dl_remote_list_to_file(EDC_CTX *p_ctx, const char* sync_cmd, const char* file_name);
 int get_remote_list(EDC_CTX*,const char*,const char*, pthread_mutex_t*);
 
 // Thread
@@ -1215,6 +1245,13 @@ int init(EDC_CTX *p_ctx)
         return kFailure;
     }
 
+    log0(INFO, kModName, __func__, "Load local lists");
+    if (load_local_lists(p_ctx) != kSuccess)
+    {
+        log0(ERROR, kModName, __func__, "Load lists failure!");
+        return kFailure;
+    }
+
     log0(INFO, kModName, __func__, "Connect to EDCAgent");
     if (connect_server(p_ctx) != kSuccess)
     {
@@ -1229,13 +1266,6 @@ int init(EDC_CTX *p_ctx)
             log0(ERROR, kModName, __func__, "Sync list file failure.");
             return kFailure;
         }
-    }
-
-    log0(INFO, kModName, __func__, "Load downloaded lists");
-    if (load_local_lists(p_ctx) != kSuccess)
-    {
-        log0(ERROR, kModName, __func__, "Load lists failure!");
-        return kFailure;
     }
 
     log0(INFO, kModName, __func__, "Initialize thread to sync list");
@@ -1262,12 +1292,16 @@ int init(EDC_CTX *p_ctx)
 
 int sync_lists(EDC_CTX *p_ctx)
 {
-    char            tmp_emp_file[kMaxPathLen];
-    char            tmp_edc_file[kMaxPathLen];
-    char            tmp_proj_file[kMaxPathLen];
-    EMPLOYEE_DATA   tmp_emp_list[kMaxEmpListSize];
-    EDC_DATA        tmp_edc_list[kMaxEDCListSize];
-    PROJ_DATA       tmp_proj_list[kMaxProjListSize];
+    char    tmp_emp_list[kMaxPathLen + 1];
+    char    tmp_edc_list[kMaxPathLen + 1];
+    char    tmp_proj_list[kMaxPathLen + 1];
+    char    emp_delta_buf[kMaxEmpListBuf + 1];
+    //char    edc_delta_buf[kMaxEDCListBuf + 1];
+    char    proj_delta_buf[kMaxProjListBuf + 1];
+    EDC_DATA        edc_list_tmp[kMaxEDCListSize];
+    int     len;
+    char    send_buf[kMaxReadLineLen];
+    int     send_len;
 
     if (!p_ctx)
     {
@@ -1275,104 +1309,208 @@ int sync_lists(EDC_CTX *p_ctx)
         return kFailure;
     }
 
-    snprintf(tmp_emp_file, kMaxPathLen, "%s%s",
-            kEmpListFile, kTempFileSuffix);
-    snprintf(tmp_edc_file, kMaxPathLen, "%s%s",
-            kEDCListFile, kTempFileSuffix);
-    snprintf(tmp_proj_file, kMaxPathLen, "%s%s",
-            kProjListFile, kTempFileSuffix);
+    snprintf(tmp_emp_list, kMaxPathLen + 1, "%s%s", kEmpListFile, kTempFileSuffix);
+    snprintf(tmp_edc_list, kMaxPathLen + 1, "%s%s", kEDCListFile, kTempFileSuffix);
+    snprintf(tmp_proj_list, kMaxPathLen + 1, "%s%s", kProjListFile, kTempFileSuffix);
 
-    // Employee list
-    log1(INFO, kModName, __func__, "Download Employee list to temp file: %s",
-            tmp_emp_file);
-    if (dl_remote_list(p_ctx, kSyncEmpCmd,
-                tmp_emp_file) != kSuccess)
+    // Employee Delta
+    log0(INFO, kModName, __func__, "Download Employee list to buffer");
+    len = dl_remote_list(p_ctx, kSyncEmpDeltaCmd,
+                emp_delta_buf, kMaxEmpListBuf + 1);
+    if (len < 0)
     {
-        log1(ERROR, kModName, __func__,
-            "Download Employee list to local is failure, use local list: %s",
-            tmp_emp_file);
+        log0(ERROR, kModName, __func__,
+            "Download Employee delta failure");
     }
     else
     {
-        log1(INFO, kModName, __func__, "Download Employee list to temp file OK: %s",
-            tmp_emp_file);
-        // Download OK, test it.
-        if (load_employee_list(tmp_emp_list, MAX_EMP_LIST_SIZE,
-                tmp_emp_file, NULL) < 0)
+        //Load delta, update current list
+        if (load_emp_delta(p_ctx->emp_list, &p_ctx->emp_num, emp_delta_buf, len, &p_ctx->emp_mutex) == kFailure)
         {
-            log1(ERROR, kModName, __func__,
-                "Downloaded employee list is malformed, use local list: %s",
-                tmp_emp_file);
+            log0(ERROR, kModName, __func__, "Load Employee delta failure");
         }
         else
         {
-            if (rename(tmp_emp_file, kEmpListFile) != kSuccess)
+            // save current list to local
+            log1(DEBUG, kModName, __func__, "Load Employee list ok, current num: %d", p_ctx->emp_num);
+            if (save_emp_list(p_ctx->emp_list, p_ctx->emp_num, tmp_emp_list, &p_ctx->emp_mutex) == kSuccess)
             {
-                log2(ERROR, kModName, __func__,
-                    "Move temp file %s to employee file %s failure"
-                    ", use original file\n", tmp_emp_file, kEmpListFile);
+                log2(INFO, kModName, __func__, "Rename Employee list %s -> %s", tmp_emp_list, kEmpListFile);
+                if (rename(tmp_emp_list, kEmpListFile) == kFailure)
+                {
+                    log3(ERROR, kModName, __func__, "Rename Employee list %s -> %s failure, %s",
+                            tmp_emp_list, kEmpListFile, strerror(errno));
+                }
+                else
+                {
+                    memset(send_buf, 0, kMaxReadLineLen);
+                    send_len = snprintf(send_buf, kMaxReadLineLen,
+                            "%s\t%s\n", kSyncEmpDeltaOKCmd, p_ctx->edc_id);
+                    if (p_ctx->connected)
+                    {
+                        log0(DEBUG, kModName, __func__, "Send SYNC_EMP_DELTA_OK to Agent");
+                        if (sock_write(p_ctx->server_fd, send_buf, send_len) != send_len)
+                        {
+                            log0(ERROR, kModName, __func__, "Send request of lists to server fail.");
+                            p_ctx->connected = kFalse;
+                            return kFailure;
+                        }
+                    }
+                    else
+                    {
+                        log0(ERROR, kModName, __func__, "Agent down after get employee delta. "
+                                "This may make duplicate of list item.");
+                    }
+                }
+            }
+            else
+            {
+                log1(INFO, kModName, __func__, "Save temporary Employee list %s failure",
+                        tmp_emp_list);
             }
         }
     }
 
     // EDC list
+    /* delta version
+    log0(INFO, kModName, __func__, "Download EDC list to buffer");
+    len = dl_remote_list(p_ctx, kSyncEdcCmd,
+                edc_delta_buf, kMaxEDCListBuf + 1);
+    if (len < 0)
+    {
+        log0(ERROR, kModName, __func__,
+            "Download EDC delta failure");
+    }
+    else
+    {
+        //Load delta, update current list
+        if (load_edc_delta(p_ctx->edc_list, &p_ctx->edc_num, edc_delta_buf, len, &p_ctx->edc_mutex) == kFailure)
+        {
+            log0(ERROR, kModName, __func__, "Load EDC delta failure");
+        }
+        else
+        {
+            // save current list to local
+            if (save_edc_list(p_ctx->edc_list,p_ctx->edc_num, tmp_edc_list, &p_ctx->edc_mutex) == kSuccess)
+            {
+                log2(INFO, kModName, __func__, "Rename EDC list %s -> %s", tmp_edc_list, kEDCListFile);
+                if (rename(tmp_edc_list, kEmpListFile) == kFailure)
+                {
+                    log2(ERROR, kModName, __func__, "Rename EDC list %s -> %s failure",
+                            tmp_edc_list, kEmpListFile);
+                }
+                else
+                {
+                    memset(send_buf, 0, kMaxReadLineLen);
+                    send_len = snprintf(send_buf, kMaxReadLineLen,
+                            "%s\t%s\n", kSyncEdcOKCmd, p_ctx->edc_id);
+                    if (p_ctx->connected)
+                    {
+                        if (sock_write(p_ctx->server_fd, send_buf, send_len) != send_len)
+                        {
+                            log0(ERROR, kModName, __func__, "Send request of lists to server fail.");
+                            p_ctx->connected = kFalse;
+                            return kFailure;
+                        }
+                    }
+                    else
+                    {
+                        log0(ERROR, kModName, __func__, "Agent down before get delta list. "
+                                "This may make duplicate of list item.");
+                    }
+                }
+            }
+            else
+            {
+                log1(INFO, kModName, __func__, "Save tedcorary EDC list %s failure",
+                        tmp_edc_list);
+            }
+        }
+    }
+    */
     log1(INFO, kModName, __func__, "Download EDC list to temp file: %s",
-            tmp_edc_file);
-    if (dl_remote_list(p_ctx, kSyncEDCCmd,
-                tmp_edc_file) != kSuccess)
+            tmp_edc_list);
+    if (dl_remote_list_to_file(p_ctx, kSyncEdcCmd,
+                tmp_edc_list) != kSuccess)
     {
         log1(ERROR, kModName, __func__,
             "Download EDC list to local is failure, use local list: %s",
-            tmp_edc_file);
+            tmp_edc_list);
     }
     else
     {
         // Download OK, test it.
-        if (load_edc_list(tmp_edc_list, kMaxEDCListSize,
-                tmp_edc_file, NULL) < 0)
+        if (load_edc_list(edc_list_tmp, kMaxEDCListSize,
+                tmp_edc_list, NULL) < 0)
         {
             log1(ERROR, kModName, __func__,
                 "Downloaded EDC list is malformed, use local list: %s",
-                tmp_edc_file);
+                tmp_edc_list);
         }
         else
         {
-            if (rename(tmp_edc_file, kEDCListFile) != kSuccess)
+            if (rename(tmp_edc_list, kEDCListFile) != kSuccess)
             {
                 log2(ERROR, kModName, __func__,
                     "Move temp file %s to edc file %s failure"
-                    ", use original file\n", tmp_edc_file, kEDCListFile);
+                    ", use original file\n", tmp_edc_list, kEDCListFile);
             }
         }
     }
 
     // Project list
-    log1(INFO, kModName, __func__, "Download Project list to temp file: %s",
-            tmp_proj_file);
-    if (dl_remote_list(p_ctx, kSyncProjCmd,
-                tmp_proj_file) != kSuccess)
+    log0(INFO, kModName, __func__, "Download Project list to buffer");
+    len = dl_remote_list(p_ctx, kSyncProjDeltaCmd,
+                proj_delta_buf, kMaxProjListBuf + 1);
+    if (len < 0)
     {
-        log1(ERROR, kModName, __func__,
-            "Download Project list to local is failure, use local list: %s",
-            tmp_proj_file);
+        log0(ERROR, kModName, __func__,
+            "Download Project delta failure");
     }
     else
     {
-        // Download OK, test it.
-        if (load_proj_list(tmp_proj_list, kMaxProjListSize,
-                tmp_proj_file, NULL) < 0)
+        //Load delta, update current list
+        if (load_proj_delta(p_ctx->proj_list, &p_ctx->proj_num, proj_delta_buf, len, &p_ctx->proj_mutex) == kFailure)
         {
-            log1(ERROR, kModName, __func__,
-                "Downloaded Project list is malformed, use local list: %s",
-                tmp_proj_file);
+            log0(ERROR, kModName, __func__, "Load Project delta failure");
         }
         else
         {
-            if (rename(tmp_proj_file, kProjListFile) != kSuccess)
+            // save current list to local
+            log1(DEBUG, kModName, __func__, "Load Proj list ok, current num: %d", p_ctx->proj_num);
+            if (save_proj_list(p_ctx->proj_list,p_ctx->proj_num, tmp_proj_list, &p_ctx->proj_mutex) == kSuccess)
             {
-                log2(ERROR, kModName, __func__,
-                    "Move temp file %s to proj file %s failure"
-                    ", use original file\n", tmp_proj_file, kProjListFile);
+                log2(DEBUG, kModName, __func__, "Rename Project list %s -> %s", tmp_proj_list, kProjListFile);
+                if (rename(tmp_proj_list, kEmpListFile) == kFailure)
+                {
+                    log2(ERROR, kModName, __func__, "Rename Project list %s -> %s failure",
+                            tmp_proj_list, kEmpListFile);
+                }
+                else
+                {
+                    memset(send_buf, 0, kMaxReadLineLen);
+                    send_len = snprintf(send_buf, kMaxReadLineLen,
+                            "%s\t%s\n", kSyncProjDeltaOKCmd, p_ctx->edc_id);
+                    if (p_ctx->connected)
+                    {
+                        if (sock_write(p_ctx->server_fd, send_buf, send_len) != send_len)
+                        {
+                            log0(ERROR, kModName, __func__, "Send request of lists to server fail.");
+                            p_ctx->connected = kFalse;
+                            return kFailure;
+                        }
+                    }
+                    else
+                    {
+                        log0(ERROR, kModName, __func__, "Agent down after get project delta. "
+                                "This may make duplicate of list item.");
+                    }
+                }
+            }
+            else
+            {
+                log1(INFO, kModName, __func__, "Save tprojorary Project list %s failure",
+                        tmp_proj_list);
             }
         }
     }
@@ -1380,36 +1518,854 @@ int sync_lists(EDC_CTX *p_ctx)
     return kSuccess;
 }
 
+/* Return modified line*/
+int load_emp_delta(EMP_DATA *emp_list, int* list_size, char *delta, const int len, pthread_mutex_t *p_mutex)
+{
+    EMP_DATA load_emp;
+    int target_idx;
+    DELTA_ACTION delta_action;
+
+    int line_count = 0;
+    char line_buf[kMaxReadLineLen + 1];
+    char temp_buf[kMaxReadLineLen + 1];
+    char *cur_ptr;
+    char *line_ptr;
+    int tmp_int;
+    int line_len;
+    int get_len;
+
+    if (!emp_list || !delta || *list_size < 0)
+    {
+        log0(ERROR, kModName, __func__, "Parameter Fail!");
+        return kFailure;
+    }
+
+    line_ptr = delta;
+
+    if (p_mutex && pthread_mutex_lock(p_mutex))
+    {
+        log0(ERROR, kModName, __func__, "Lock Employee mutex failure!");
+        return kFailure;
+    }
+
+    while (line_ptr - delta < len)
+    {
+        // Fetch one line
+        if ((line_len = get_str_before_char(line_ptr, kNewLine,
+                line_buf, kMaxReadLineLen + 1)) == kFailure)
+        {
+            log2(DEBUG, kModName, __func__, "Fetch one line failure: %s(%d)", delta, strlen(line_ptr));
+            goto LOAD_EMP_DELTA_FAIL;
+        }
+
+        // Fetch field from a line
+        // Didn't use line_buf here, only fetch line_len to offset
+        cur_ptr = line_ptr;
+        line_ptr += line_len + 1;
+        if ((get_len = get_str_before_char(cur_ptr, kTab,
+                        load_emp.dep_name, kMaxDepartmentNameLen + 1)) == kFailure)
+        {
+            log2(DEBUG, kModName, __func__, "Fetch dep_name failure: %s(%d)", cur_ptr, strlen(cur_ptr));
+            goto LOAD_EMP_DELTA_FAIL;
+        }
+
+        cur_ptr += (get_len + 1);   // Include tab
+        if ((get_len = get_str_before_char(cur_ptr, kTab,
+                        load_emp.dep_no, kMaxDepartmentNOLen + 1)) == kFailure)
+        {
+            log2(DEBUG, kModName, __func__, "Fetch dep_no failure: %s(%d)", cur_ptr, strlen(cur_ptr));
+            goto LOAD_EMP_DELTA_FAIL;
+        }
+
+        cur_ptr += (get_len + 1);
+        if ((get_len = get_str_before_char(cur_ptr, kTab,
+                        load_emp.emp_no, kMaxEmpNOLen + 1)) == kFailure)
+        {
+            log2(DEBUG, kModName, __func__, "Fetch emp_no failure: %s(%d)", cur_ptr, strlen(cur_ptr));
+            goto LOAD_EMP_DELTA_FAIL;
+        }
+
+        cur_ptr += (get_len + 1);
+        if ((get_len = get_str_before_char(cur_ptr, kTab,
+                        load_emp.card_sn, kMaxCardSNLen + 1)) == kFailure)
+        {
+            log2(DEBUG, kModName, __func__, "Fetch card_sn failure: %s(%d)", cur_ptr, strlen(cur_ptr));
+            goto LOAD_EMP_DELTA_FAIL;
+        }
+
+        cur_ptr += (get_len + 1);
+        if ((get_len = get_str_before_char(cur_ptr, kTab,
+                        temp_buf, kMaxReadLineLen)) == kFailure)
+        {
+            log2(DEBUG, kModName, __func__, "Fetch init_quota failure: %s(%d)", cur_ptr, strlen(cur_ptr));
+            goto LOAD_EMP_DELTA_FAIL;
+        }
+        load_emp.init_quota = (int)strtol(temp_buf, NULL, 10);
+
+        cur_ptr += (get_len + 1);
+        if ((get_len = get_str_before_char(cur_ptr, kTab,
+                        temp_buf, kMaxReadLineLen)) == kFailure)
+        {
+            log2(DEBUG, kModName, __func__, "Fetch curr_quota failure: %s(%d)", cur_ptr, strlen(cur_ptr));
+            goto LOAD_EMP_DELTA_FAIL;
+        }
+        load_emp.curr_quota = (int)strtol(temp_buf, NULL, 10);
+
+        cur_ptr += (get_len + 1);
+        if ((get_len = get_str_before_char(cur_ptr, kTab,
+                        temp_buf, kMaxReadLineLen)) == kFailure)
+        {
+            log2(DEBUG, kModName, __func__, "Fetch only_mono failure: %s(%d)", cur_ptr, strlen(cur_ptr));
+            goto LOAD_EMP_DELTA_FAIL;
+        }
+        load_emp.only_mono = (int)((*temp_buf == '0')?kTrue:kFalse);
+
+        cur_ptr += (get_len + 1);
+        log2(DEBUG, kModName, __func__, "Fetch delta_action: %s(%d)", cur_ptr, strlen(cur_ptr));
+        if ((get_len = get_str_before_char(cur_ptr, kNewLine,
+                        temp_buf, kMaxReadLineLen)) == kFailure)
+        {
+            log2(DEBUG, kModName, __func__, "Fetch delta_action failure: %s(%d)", cur_ptr, strlen(cur_ptr));
+            goto LOAD_EMP_DELTA_FAIL;
+        }
+        tmp_int = (int)strtol(temp_buf, NULL, 10);
+        if (tmp_int > 2 || tmp_int < 0)
+        {
+            goto LOAD_EMP_DELTA_FAIL;
+        }
+        delta_action = tmp_int;
+
+        switch (delta_action)
+        {
+            case NEW:
+                log1(DEBUG, kModName, __func__, "Add Employee to list: %s", load_emp.emp_no);
+                if (*list_size >= kMaxEmpListSize)
+                {
+                    log1(ERROR, kModName, __func__, "Employee list have no empty space, "
+                            "Employee NO: %s", load_emp.emp_no);
+                }
+                else
+                {
+                    memcpy(&emp_list[*list_size], &load_emp, sizeof(EMP_DATA));
+                    (*list_size)++;
+                }
+                break;
+            case MODIFY:
+                log1(DEBUG, kModName, __func__, "Edit Employee to list: %s", load_emp.emp_no);
+                target_idx = emp_list_find_index(emp_list, *list_size, load_emp.emp_no);
+                if (target_idx < 0)
+                {
+                    log1(ERROR, kModName, __func__,
+                            "Can not find employee to modify: %s", load_emp.emp_no);
+                }
+                else
+                {
+                    memcpy(&emp_list[target_idx], &load_emp, sizeof(EMP_DATA));
+                }
+                break;
+            case DELETE:
+                log1(DEBUG, kModName, __func__, "Delete Employee to list: %s", load_emp.emp_no);
+                target_idx = emp_list_find_index(emp_list, *list_size, load_emp.emp_no);
+                if (target_idx < 0)
+                {
+                    log1(ERROR, kModName, __func__,
+                            "Can not find employee to delete: %s", load_emp.emp_no);
+                }
+                else
+                {
+                    if ( target_idx + 1 >= kMaxEmpListSize)
+                    {
+                        memset(&emp_list[target_idx], 0, sizeof(EMP_DATA));
+                    }
+                    else
+                    {
+                        memcpy(&emp_list[target_idx], &emp_list[target_idx + 1],
+                                sizeof(EMP_DATA) * (*list_size - target_idx - 1));
+                    }
+                    (*list_size)--;
+                }
+                break;
+        }
+
+        line_count++;
+    }
+
+    if (p_mutex && pthread_mutex_unlock(p_mutex))
+    {
+        log0(ERROR, kModName, __func__, "Unlock Employee mutex failure!");
+        return kFailure;
+    }
+
+    return line_count;
+
+LOAD_EMP_DELTA_FAIL:
+    log2(ERROR, kModName, __func__,
+            "Employee list malformed in line: %d, %s", line_count, cur_ptr);
+    if (p_mutex && pthread_mutex_unlock(p_mutex))
+    {
+        log0(ERROR, kModName, __func__, "Unlock Employee mutex failure!");
+    }
+    return kFailure;
+}
+
+int emp_list_find_index(const EMP_DATA *p_list, int list_size, const char* emp_no)
+{
+    int i = 0;
+
+    if (!p_list || !emp_no || list_size < 0)
+    {
+        log0(ERROR, kModName, __func__, "Parameter Fail!");
+        return kFailure;
+    }
+
+    while (i < list_size)
+    {
+        if (strncmp(p_list[i].emp_no, emp_no, kMaxEmpNOLen + 1) == kSuccess)
+        {
+            return i;
+        }
+        i++;
+    }
+
+    return kFailure;
+}
+
+int save_emp_list(EMP_DATA *p_list, int list_size, const char *file_name, pthread_mutex_t *p_mutex)
+{
+    EMP_DATA *emp_ptr;
+    int ret;
+    FILE *fp_list;
+
+    if (!p_list || !file_name)
+    {
+        log0(ERROR, kModName, __func__, "Parameter Fail!");
+        return kFailure;
+    }
+
+    emp_ptr = p_list;
+
+    if (!(fp_list = fopen(file_name, "w")))
+    {
+        log1(ERROR, kModName, __func__,
+                "Can not open %s.", file_name);
+        return kFailure;
+    }
+
+    if (p_mutex && pthread_mutex_lock(p_mutex))
+    {
+        log0(ERROR, kModName, __func__, "Lock Employee mutex failure!");
+        return kFailure;
+    }
+
+    while (emp_ptr - p_list < list_size)
+    {
+        ret = fprintf(fp_list, "%s\t%s\t%s\t%s\t%d\t%d\t%d\n",
+                emp_ptr->dep_name, emp_ptr->dep_no,
+                emp_ptr->emp_no, emp_ptr->card_sn,
+                emp_ptr->init_quota, emp_ptr->curr_quota,
+                emp_ptr->only_mono);
+        if (ret < 0)
+        {
+            log1(ERROR, kModName, __func__,
+                    "Write to %s failure", file_name);
+            fclose(fp_list);
+            if (p_mutex && pthread_mutex_unlock(p_mutex))
+            {
+                log0(ERROR, kModName, __func__, "Unlock Employee mutex failure!");
+            }
+            return kFailure;
+        }
+        emp_ptr++;
+    }
+
+    fclose(fp_list);
+
+    if (p_mutex && pthread_mutex_unlock(p_mutex))
+    {
+        log0(ERROR, kModName, __func__, "Unlock Employee mutex failure!");
+        return kFailure;
+    }
+
+    return kSuccess;
+}
+
+int load_edc_delta(EDC_DATA *edc_list, int *list_size, char *delta, const int len, pthread_mutex_t *p_mutex)
+{
+    EDC_DATA load_edc;
+    int target_idx;
+    DELTA_ACTION delta_action;
+
+    int line_count = 0;
+    char line_buf[kMaxReadLineLen + 1];
+    char temp_buf[kMaxReadLineLen + 1];
+    char *cur_ptr;
+    char *line_ptr;
+    int tmp_int;
+    int line_len;
+    int get_len;
+
+    if (!edc_list || !delta || *list_size < 0)
+    {
+        log0(ERROR, kModName, __func__, "Parameter Fail!");
+        return kFailure;
+    }
+
+    line_ptr = delta;
+
+    if (p_mutex && pthread_mutex_lock(p_mutex))
+    {
+        log0(ERROR, kModName, __func__, "Lock Employee mutex failure!");
+        return kFailure;
+    }
+
+    while (line_ptr - delta < len)
+    {
+        // Fetch one line
+        if ((line_len = get_str_before_char(line_ptr, kNewLine,
+                line_buf, kMaxReadLineLen + 1)) == kFailure)
+        {
+            goto LOAD_EDC_DELTA_FAIL;
+        }
+
+        cur_ptr = line_buf;
+        line_ptr += line_len + 1;
+        if ((get_len = get_str_before_char(cur_ptr, kTab,
+                        load_edc.edc_id, MAX_EDC_ID_LEN + 1)) == kFailure)
+        {
+            goto LOAD_EDC_DELTA_FAIL;
+        }
+
+        cur_ptr += (get_len + 1);
+        if ((get_len = get_str_before_char(cur_ptr, kTab,
+                        load_edc.edc_ip, MAX_IP_LEN + 1)) == kFailure)
+        {
+            goto LOAD_EDC_DELTA_FAIL;
+        }
+
+        cur_ptr += (get_len + 1);
+        if ((get_len = get_str_before_char(cur_ptr, kTab,
+                        load_edc.printer_ip, MAX_IP_LEN + 1)) == kFailure)
+        {
+            goto LOAD_EDC_DELTA_FAIL;
+        }
+
+        cur_ptr += (get_len + 1);
+        if ((get_len = get_str_before_char(cur_ptr, kTab,
+                        temp_buf, kMaxReadLineLen)) == kFailure)
+        {
+            goto LOAD_EDC_DELTA_FAIL;
+        }
+        load_edc.limit_time = (int)strtol(temp_buf, NULL, 10);
+
+        cur_ptr += (get_len + 1);
+        if ((get_len = get_str_before_char(cur_ptr, kTab,
+                        temp_buf, kMaxReadLineLen)) == kFailure)
+        {
+            goto LOAD_EDC_DELTA_FAIL;
+        }
+        load_edc.show_quota = (int)strtol(temp_buf, NULL, 10);
+
+        cur_ptr += (get_len + 1);
+        if ((get_len = get_str_before_char(cur_ptr, kTab,
+                        temp_buf, kMaxReadLineLen)) == kFailure)
+        {
+            goto LOAD_EDC_DELTA_FAIL;
+        }
+        load_edc.mono_a3 = (int)strtol(temp_buf, NULL, 10);
+
+        cur_ptr += (get_len + 1);
+        if ((get_len = get_str_before_char(cur_ptr, kTab,
+                        temp_buf, kMaxReadLineLen)) == kFailure)
+        {
+            goto LOAD_EDC_DELTA_FAIL;
+        }
+        load_edc.mono_a4 = (int)strtol(temp_buf, NULL, 10);
+
+        cur_ptr += (get_len + 1);
+        if ((get_len = get_str_before_char(cur_ptr, kTab,
+                        temp_buf, kMaxReadLineLen)) == kFailure)
+        {
+            goto LOAD_EDC_DELTA_FAIL;
+        }
+        load_edc.color_a3 = (int)strtol(temp_buf, NULL, 10);
+
+        cur_ptr += (get_len + 1);
+        if ((get_len = get_str_before_char(cur_ptr, kTab,
+                        temp_buf, kMaxReadLineLen)) == kFailure)
+        {
+            goto LOAD_EDC_DELTA_FAIL;
+        }
+        load_edc.color_a4 = (int)strtol(temp_buf, NULL, 10);
+
+        cur_ptr += (get_len + 1);
+        if ((get_len = get_str_before_char(cur_ptr, kTab,
+                        temp_buf, kMaxReadLineLen)) == kFailure)
+        {
+            goto LOAD_EDC_DELTA_FAIL;
+        }
+        load_edc.paper_size_a = (int)strtol(temp_buf, NULL, 10);
+
+        cur_ptr += (get_len + 1);
+        if ((get_len = get_str_before_char(cur_ptr, kNewLine,
+                        temp_buf, kMaxReadLineLen)) == kFailure)
+        {
+            goto LOAD_EDC_DELTA_FAIL;
+        }
+        load_edc.paper_size_b = (int)strtol(temp_buf, NULL, 10);
+
+        cur_ptr += (get_len + 1);
+        if ((get_len = get_str_before_char(cur_ptr, kNewLine,
+                        temp_buf, kMaxReadLineLen)) == kFailure)
+        {
+            goto LOAD_EDC_DELTA_FAIL;
+        }
+        tmp_int = (int)strtol(temp_buf, NULL, 10);
+        if (tmp_int > 2 || tmp_int < 0)
+        {
+            goto LOAD_EDC_DELTA_FAIL;
+        }
+        delta_action = tmp_int;
+
+        switch (delta_action)
+        {
+            case NEW:
+                if (*list_size >= kMaxEDCListSize)
+                {
+                    log1(ERROR, kModName, __func__, "EDC list have no empty space, "
+                            "EDC ID: %s", load_edc.edc_id);
+                }
+                else
+                {
+                    memcpy(&edc_list[*list_size], &load_edc, sizeof(EDC_DATA));
+                    (*list_size)++;
+                }
+                break;
+            case MODIFY:
+                target_idx = edc_list_find_index(edc_list, *list_size, load_edc.edc_id);
+                if (target_idx < 0)
+                {
+                    log1(ERROR, kModName, __func__,
+                            "Can not find edc to modify: %s", load_edc.edc_id);
+                }
+                else
+                {
+                    memcpy(&edc_list[target_idx], &load_edc, sizeof(EDC_DATA));
+                }
+                break;
+            case DELETE:
+                target_idx = edc_list_find_index(edc_list, *list_size, load_edc.edc_id);
+                if (target_idx < 0)
+                {
+                    log1(ERROR, kModName, __func__,
+                            "Can not find edc to delete: %s", load_edc.edc_id);
+                }
+                else
+                {
+                    if (target_idx + 1 >= kMaxEDCListSize)
+                    {
+                        memset(&edc_list[target_idx], 0, sizeof(EDC_DATA));
+                    }
+                    else
+                    {
+                        memcpy(&edc_list[target_idx], &edc_list[target_idx + 1],
+                                sizeof(EDC_DATA) * (*list_size - target_idx - 1));
+                    }
+                    (*list_size)--;
+                }
+                break;
+        }
+
+        line_count++;
+    }
+
+    if (p_mutex && pthread_mutex_unlock(p_mutex))
+    {
+        log0(ERROR, kModName, __func__, "Unlock EDC mutex failure!");
+        return kFailure;
+    }
+
+    return line_count;
+
+LOAD_EDC_DELTA_FAIL:
+    log1(ERROR, kModName, __func__,
+            "EDC list malformed in line: %d", line_count);
+    if (p_mutex && pthread_mutex_unlock(p_mutex))
+    {
+        log0(ERROR, kModName, __func__, "Unlock EDC mutex failure!");
+    }
+    return kFailure;
+}
+
+int edc_list_find_index(const EDC_DATA *edc_list, int list_size, const char* edc_id)
+{
+    int i = 0;
+
+    if (!edc_list || !edc_id || list_size < 0)
+    {
+        log0(ERROR, kModName, __func__, "Parameter Fail!");
+        return kFailure;
+    }
+
+    while (i < list_size)
+    {
+        if (strncmp(edc_list[i].edc_id, edc_id, kMaxEDCIDLen + 1) == kSuccess)
+        {
+            return i;
+        }
+        i++;
+    }
+
+    return kFailure;
+}
+
+int save_edc_list(EDC_DATA *p_list, int list_size, const char *file_name, pthread_mutex_t *p_mutex)
+{
+    EDC_DATA *edc_ptr;
+    int ret;
+    FILE *fp_list;
+
+    if (!p_list || !file_name)
+    {
+        log0(ERROR, kModName, __func__, "Parameter Fail!");
+        return kFailure;
+    }
+
+    edc_ptr = p_list;
+
+    if (!(fp_list = fopen(file_name, "w")))
+    {
+        log1(ERROR, kModName, __func__,
+                "Can not open %s.", file_name);
+        return kFailure;
+    }
+
+    if (p_mutex && pthread_mutex_lock(p_mutex))
+    {
+        log0(ERROR, kModName, __func__, "Lock EDC mutex failure!");
+        return kFailure;
+    }
+
+    while (edc_ptr - p_list < list_size)
+    {
+        ret = fprintf(fp_list, "%s\t%s\t%s\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d\n",
+                edc_ptr->edc_id, edc_ptr->edc_ip, edc_ptr->printer_ip,
+                edc_ptr->limit_time, edc_ptr->show_quota,
+                edc_ptr->mono_a3, edc_ptr->mono_a4,
+                edc_ptr->color_a3, edc_ptr->color_a4,
+                edc_ptr->paper_size_a, edc_ptr->paper_size_b
+                );
+        if (ret < 0)
+        {
+            log1(ERROR, kModName, __func__,
+                    "Write to %s failure", file_name);
+            fclose(fp_list);
+            if (p_mutex && pthread_mutex_unlock(p_mutex))
+            {
+                log0(ERROR, kModName, __func__, "Unlock EDC mutex failure!");
+            }
+            return kFailure;
+        }
+        edc_ptr++;
+    }
+
+    fclose(fp_list);
+
+    if (p_mutex && pthread_mutex_unlock(p_mutex))
+    {
+        log0(ERROR, kModName, __func__, "Unlock Employee mutex failure!");
+        return kFailure;
+    }
+
+    return kSuccess;
+}
+
+int load_proj_delta(PROJ_DATA *proj_list, int *list_size, char *delta, const int len, pthread_mutex_t *p_mutex)
+{
+    PROJ_DATA load_proj;
+    int target_idx;
+    DELTA_ACTION delta_action;
+
+    int line_count = 0;
+    char line_buf[kMaxReadLineLen + 1];
+    char temp_buf[kMaxReadLineLen + 1];
+    char *cur_ptr;
+    char *line_ptr;
+    int tmp_int;
+    int line_len;
+    int get_len;
+
+    if (!proj_list || !delta || *list_size < 0)
+    {
+        log0(ERROR, kModName, __func__, "Parameter Fail!");
+        return kFailure;
+    }
+
+    line_ptr = delta;
+
+    if (p_mutex && pthread_mutex_lock(p_mutex))
+    {
+        log0(ERROR, kModName, __func__, "Lock Employee mutex failure!");
+        return kFailure;
+    }
+
+    while (line_ptr - delta < len)
+    {
+        // Fetch one line
+        if ((line_len = get_str_before_char(line_ptr, kNewLine,
+                line_buf, kMaxReadLineLen + 1)) == kFailure)
+        {
+            log2(DEBUG, kModName, __func__, "Fetch one line failure: %s(%d)", delta, strlen(line_ptr));
+            goto LOAD_PROJ_DELTA_FAIL;
+        }
+
+        cur_ptr = line_ptr;
+        line_ptr += line_len + 1;
+        log2(DEBUG, kModName, __func__, "Fetch one line proj: %s(%d)", cur_ptr, strlen(cur_ptr));
+        if ((get_len = get_str_before_char(cur_ptr, kTab,
+                        load_proj.proj_num, kMaxProjectCodeLen + 1)) == kFailure)
+        {
+            log2(DEBUG, kModName, __func__, "Fetch proj_num failure: %s(%d)", cur_ptr, strlen(cur_ptr));
+            goto LOAD_PROJ_DELTA_FAIL;
+        }
+
+        cur_ptr += (get_len + 1);
+        if ((get_len = get_str_before_char(cur_ptr, kNewLine,
+                        temp_buf, kMaxReadLineLen)) == kFailure)
+        {
+            log2(DEBUG, kModName, __func__, "Fetch delta_action failure: %s(%d)", cur_ptr, strlen(cur_ptr));
+            goto LOAD_PROJ_DELTA_FAIL;
+        }
+        tmp_int = (int)strtol(temp_buf, NULL, 10);
+        if (tmp_int > 2 || tmp_int < 0)
+        {
+            goto LOAD_PROJ_DELTA_FAIL;
+        }
+        delta_action = tmp_int;
+
+        switch (delta_action)
+        {
+            case NEW:
+                log1(DEBUG, kModName, __func__, "Add Project to list: %s", load_proj.proj_num);
+                if (*list_size >= kMaxProjListSize)
+                {
+                    log1(ERROR, kModName, __func__, "PROJ list have no empty space, "
+                            "PROJ ID: %s", load_proj.proj_num);
+                }
+                else
+                {
+                    memcpy(&proj_list[*list_size], &load_proj, sizeof(PROJ_DATA));
+                    (*list_size)++;
+                }
+                break;
+            case MODIFY:
+                log1(DEBUG, kModName, __func__, "Edit Project to list: %s", load_proj.proj_num);
+                target_idx = proj_list_find_index(proj_list, *list_size, load_proj.proj_num);
+                log0(DEBUG, kModName, __func__, "Find project in list!");
+                if (target_idx < 0)
+                {
+                    log1(ERROR, kModName, __func__,
+                            "Can not find proj to modify: %s", load_proj.proj_num);
+                }
+                else
+                {
+                    memcpy(&proj_list[target_idx], &load_proj, sizeof(PROJ_DATA));
+                }
+                break;
+            case DELETE:
+                log1(DEBUG, kModName, __func__, "Delete Project to list: %s", load_proj.proj_num);
+                target_idx = proj_list_find_index(proj_list, *list_size, load_proj.proj_num);
+                if (target_idx < 0)
+                {
+                    log1(ERROR, kModName, __func__,
+                            "Can not find proj to delete: %s", load_proj.proj_num);
+                }
+                else
+                {
+                    if (target_idx + 1 >= kMaxProjListSize)
+                    {
+                        memset(&proj_list[target_idx], 0, sizeof(PROJ_DATA));
+                    }
+                    else
+                    {
+                        memcpy(&proj_list[target_idx], &proj_list[target_idx + 1],
+                                sizeof(PROJ_DATA) * (*list_size - target_idx - 1));
+                    }
+                    (*list_size)--;
+                }
+                break;
+        }
+
+        line_count++;
+    }
+
+    if (p_mutex && pthread_mutex_unlock(p_mutex))
+    {
+        log0(ERROR, kModName, __func__, "Unlock PROJ mutex failure!");
+        return kFailure;
+    }
+
+    return line_count;
+
+LOAD_PROJ_DELTA_FAIL:
+    log1(ERROR, kModName, __func__,
+            "PROJ list malformed in line: %d", line_count);
+    if (p_mutex && pthread_mutex_unlock(p_mutex))
+    {
+        log0(ERROR, kModName, __func__, "Unlock PROJ mutex failure!");
+    }
+    return kFailure;
+}
+
+int proj_list_find_index(const PROJ_DATA *proj_list, int list_size, const char* proj_num)
+{
+    int i = 0;
+
+    if (!proj_list || !proj_num || list_size < 0)
+    {
+        log0(ERROR, kModName, __func__, "Parameter Fail!");
+        return kFailure;
+    }
+
+    while (i < list_size)
+    {
+        if (strncmp(proj_list[i].proj_num, proj_num, kMaxProjectCodeLen + 1) == kSuccess)
+        {
+            return i;
+        }
+        i++;
+    }
+
+    return kFailure;
+}
+
+int save_proj_list(PROJ_DATA *p_list, int list_size, const char *file_name, pthread_mutex_t *p_mutex)
+{
+    PROJ_DATA *proj_ptr;
+    int ret;
+    FILE *fp_list;
+
+    if (!p_list || !file_name)
+    {
+        log0(ERROR, kModName, __func__, "Parameter Fail!");
+        return kFailure;
+    }
+
+    proj_ptr = p_list;
+
+    if (!(fp_list = fopen(file_name, "w")))
+    {
+        log1(ERROR, kModName, __func__,
+                "Can not open %s.", file_name);
+        return kFailure;
+    }
+
+    if (p_mutex && pthread_mutex_lock(p_mutex))
+    {
+        log0(ERROR, kModName, __func__, "Lock PROJ mutex failure!");
+        return kFailure;
+    }
+
+    while (proj_ptr - p_list < list_size)
+    {
+        ret = fprintf(fp_list, "%s\n",
+                proj_ptr->proj_num
+                );
+        if (ret < 0)
+        {
+            log1(ERROR, kModName, __func__,
+                    "Write to %s failure", file_name);
+            fclose(fp_list);
+            if (p_mutex && pthread_mutex_unlock(p_mutex))
+            {
+                log0(ERROR, kModName, __func__, "Unlock PROJ mutex failure!");
+            }
+            return kFailure;
+        }
+        proj_ptr++;
+    }
+
+    fclose(fp_list);
+
+    if (p_mutex && pthread_mutex_unlock(p_mutex))
+    {
+        log0(ERROR, kModName, __func__, "Unlock Employee mutex failure!");
+        return kFailure;
+    }
+
+    return kSuccess;
+}
+
 int load_local_lists(EDC_CTX *p_ctx)
 {
+    int ret;
+
     if (!p_ctx)
     {
         log0(ERROR, kModName, __func__, "Parameter Fail!");
         return kFailure;
     }
 
-    if ((p_ctx->emp_num = load_employee_list(
-            p_ctx->emp_list, kMaxEmpListSize,
-            kEmpListFile, &p_ctx->emp_mutex)) < 0)
+    if (access(kEmpListFile, F_OK) != kFailure)
     {
-        log0(ERROR, kModName, __func__, "Load Employee list failure.");
-        return kFailure;
+        ret = load_employee_list(p_ctx->emp_list, kMaxEmpListSize,
+                    kEmpListFile, &p_ctx->emp_mutex);
+        if ( ret >= 0)
+        {
+            p_ctx->emp_num = ret;
+            log1(INFO, kModName, __func__, "Load local employee list: %d", ret);
+        }
+        else if (ret < 0)
+        {
+            log0(ERROR, kModName, __func__, "Load local employee list failure.");
+            return kFailure;
+        }
+    }
+    else
+    {
+        p_ctx->emp_num = 0;
+        log1(WARN, kModName, __func__, "Local employee list is not exist: %s", kEmpListFile);
     }
 
-    if ((p_ctx->edc_num = load_edc_list(
-            p_ctx->edc_list, kMaxEDCListSize,
-            kEDCListFile, &p_ctx->edc_mutex)) < 0)
+    if (access(kEDCListFile, F_OK) != kFailure)
     {
-        log0(ERROR, kModName, __func__, "Load EDC list failure.");
-        return kFailure;
+        ret = load_edc_list(p_ctx->edc_list, kMaxEDCListSize,
+                    kEDCListFile, &p_ctx->edc_mutex);
+        if (ret >= 0)
+        {
+            p_ctx->edc_num = ret;
+            log1(INFO, kModName, __func__, "Load local EDC list: %d", ret);
+        }
+        else
+        {
+            log0(ERROR, kModName, __func__, "Load local EDC list failure.");
+            return kFailure;
+        }
+    }
+    else
+    {
+        p_ctx->edc_num = 0;
+        log1(WARN, kModName, __func__, "Local EDC list is not exist: %s", kEDCListFile);
     }
 
-    if ((p_ctx->proj_num = load_proj_list(
-            p_ctx->proj_list, kMaxProjListSize,
-            kProjListFile, &p_ctx->proj_mutex)) < 0)
+    if (access(kProjListFile, F_OK) != kFailure)
     {
-        log0(ERROR, kModName, __func__, "Load project list failure.");
-        return kFailure;
+        ret = load_proj_list(p_ctx->proj_list, kMaxProjListSize,
+                kProjListFile, &p_ctx->proj_mutex);
+        if (ret >= 0)
+        {
+            p_ctx->proj_num = ret;
+            log1(INFO, kModName, __func__, "Load Local project list: %d", ret);
+        }
+        else
+        {
+            log0(ERROR, kModName, __func__, "Load local project list failure.");
+            return kFailure;
+        }
+    }
+    else
+    {
+        p_ctx->proj_num = 0;
+        log1(WARN, kModName, __func__, "Local project list is not exist: %s", kProjListFile);
     }
 
     return kSuccess;
@@ -1690,7 +2646,53 @@ int load_network_set(EDC_CTX *p_ctx, const char *ini_file)
     return kSuccess;
 }
 
-int dl_remote_list(EDC_CTX *p_ctx, const char* sync_cmd, const char* file_name)
+int dl_remote_list(EDC_CTX *p_ctx, const char* sync_cmd, char* buf, const int buf_len)
+{
+    int sock;
+
+    char send_buf[kMaxReadLineLen];
+    int send_len;
+
+    int total_recv;
+
+    if (!p_ctx || !sync_cmd || !buf)
+    {
+        log0(ERROR, kModName, __func__, "Parameter Fail!");
+        return kFailure;
+    }
+
+    if (!p_ctx->connected)
+    {
+        log0(ERROR, kModName, __func__, "Socket disconnect!");
+        return kFailure;
+    }
+
+    sock = p_ctx->server_fd;
+    memset(send_buf, 0, kMaxReadLineLen);
+
+    send_len = snprintf(send_buf, kMaxReadLineLen,
+            "%s\t%s\n", sync_cmd, p_ctx->edc_id);
+
+    if (sock_write(sock, send_buf, send_len) != send_len)
+    {
+        log0(ERROR, kModName, __func__, "Send request of lists to server fail.");
+        p_ctx->connected = kFalse;
+        return kFailure;
+    }
+
+    // If database of server is empty, there will return 0
+    // and the list file will be a empty file
+    if ((total_recv = sock_read(sock,
+            buf, buf_len)) < 0)
+    {
+        log0(ERROR, kModName, __func__, "Read response from server fail.");
+        return kFailure;
+    }
+
+    return total_recv;
+}
+
+int dl_remote_list_to_file(EDC_CTX *p_ctx, const char* sync_cmd, const char* file_name)
 {
     int sock;
 
@@ -1754,6 +2756,7 @@ int dl_remote_list(EDC_CTX *p_ctx, const char* sync_cmd, const char* file_name)
     fclose(fp_list);
     return kSuccess;
 }
+
 
 size_t sock_write(int sock, const char *buf, size_t buf_len)
 {
@@ -2198,7 +3201,7 @@ int quota_state(EDC_CTX* p_ctx)
     char remain_line[kMaxLineWord + 1];
     char action_type[kMaxLineWord + 1];
     char edc_log[kMaxEDCLogLen];
-    EMPLOYEE_DATA *curr_emp;
+    EMP_DATA *curr_emp;
     EDC_DATA *curr_edc;
     int start_epoch;
     int curr_epoch;
@@ -2279,19 +3282,17 @@ int quota_state(EDC_CTX* p_ctx)
     log0(ERROR, kModName, __func__, "----- scan count -----");
         print_printertype(&(ptr_counter.scan));
 
-    /*CLD
     if (show_quota_info(p_ctx, curr_quota, gb, gs, go, cb, cs, co) != kSuccess)
     {
         log0(ERROR, kModName, __func__, "Show quota screen failure");
         return kFailure;
     }
-    */
 
     log2(DEBUG, kModName, __func__, "Set COM%d, only mono:%d",
                 p_ctx->prt_con_type, curr_emp->only_mono);
     if (ptr_select(p_ctx->prt_con_type, curr_emp->only_mono) < kSuccess)
     {
-        log2(ERROR, kModName, __func__,
+        log2(INFO, kModName, __func__,
                 "Set COM port printer failure: COM%d, only_mono: %d",
                 p_ctx->prt_con_type, curr_emp->only_mono);
     }
@@ -2347,8 +3348,7 @@ int quota_state(EDC_CTX* p_ctx)
 
         log3(INFO, kModName, __func__, "Status flag: %8X, Modified flag: %d, u8_status: %8X",
                 status_action_flag, usage_modified_flag, ptr_counter.u8_work_status);
-        break;  //CLD
-        /*
+        //break;  //CLD
         if (status_action_flag || usage_modified_flag)
         {
             // Action
@@ -2425,7 +3425,6 @@ int quota_state(EDC_CTX* p_ctx)
         }
 
         usleep(kMicroPerSecond / 2);
-        */
     }
 
     if (!usage_empty(&ptr_counter.photocopy)
@@ -3219,7 +4218,7 @@ int setup_state(EDC_CTX* p_ctx)
                 }
                 fclose(fp_setup);
 
-                if(!(fp_network = fopen(kNetworkIni, "w")))
+                if (!(fp_network = fopen(kNetworkIni, "w")))
                 {
                     log1(ERROR, kModName, __func__,
                             "Can not open %s", kNetworkIni);
@@ -3795,7 +4794,7 @@ int is_valid_card(EDC_CTX *p_ctx)
 {
     int i;
     int result = kFalse;
-    EMPLOYEE_DATA* emp_ptr;
+    EMP_DATA* emp_ptr;
 
     if (!p_ctx)
     {
@@ -3915,6 +4914,7 @@ int get_str_before_char(const char* line, const char chr, char* dest, int dest_l
     ptr = strchr(line, chr);
     if (!ptr)
     {
+        log2(DEBUG, kModName, __func__, "Can find char %c in %s", chr, line);
         return kFailure;
     }
 
@@ -3931,7 +4931,7 @@ int get_str_before_char(const char* line, const char chr, char* dest, int dest_l
     return ptr - line;
 }
 
-int load_employee_list(EMPLOYEE_DATA *p_list, const int list_size,
+int load_employee_list(EMP_DATA *p_list, const int list_size,
         const char *file_name, pthread_mutex_t *p_mutex)
 {
     FILE *fList;
@@ -3940,7 +4940,7 @@ int load_employee_list(EMPLOYEE_DATA *p_list, const int list_size,
     char temp[kMaxReadLineLen];
     char *cur_ptr;
     int get_len;
-    EMPLOYEE_DATA *list_ptr;
+    EMP_DATA *list_ptr;
 
     if (!p_list)
     {
@@ -3958,7 +4958,7 @@ int load_employee_list(EMPLOYEE_DATA *p_list, const int list_size,
 
     if (!(fList = fopen(file_name, "r")))
     {
-        log0(ERROR, kModName, __func__, "Can not open ini file.");
+        log1(ERROR, kModName, __func__, "Can not open employee list: %s", file_name);
         return kFailure;
     }
 
@@ -4017,9 +5017,6 @@ int load_employee_list(EMPLOYEE_DATA *p_list, const int list_size,
         }
         list_ptr->only_mono = (int)((*temp == '0')?kTrue:kFalse);
 
-        // Finally, Enable this item.
-        list_ptr->enable = kTrue;
-
         list_ptr++;
         line_count++;
     }
@@ -4030,19 +5027,6 @@ int load_employee_list(EMPLOYEE_DATA *p_list, const int list_size,
         log0(ERROR, kModName, __func__, "Unlock Employee mutex failure!");
         return kFailure;
     }
-
-    /*
-    for (list_ptr = p_list;
-            list_ptr - p_list < line_count - 1; list_ptr++)
-    {
-        printf("dep_name: %s\n", list_ptr->dep_name);
-        printf("dep_no: %s\n", list_ptr->dep_no);
-        printf("emp_no: %s\n", list_ptr->emp_no);
-        printf("card_sn: %s (%d)\n", list_ptr->card_sn, strlen(list_ptr->card_sn));
-        printf("init_quota: %d\n", list_ptr->init_quota);
-        printf("curr_quota: %d\n", list_ptr->curr_quota);
-    }
-    */
 
     return line_count;
 
