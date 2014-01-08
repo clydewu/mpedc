@@ -329,7 +329,8 @@ typedef enum _op_state
     INVALID_CARD,
     QUOTA,
     SETUP,
-    PASSWD
+    PASSWD,
+    TEST
 } OP_STATE;
 
 const char STATE2STR[6][MAX_STATE_LEN] = 
@@ -508,6 +509,7 @@ int quota_state(EDC_CTX*);
 int scanning_state(EDC_CTX*);
 int setup_state(EDC_CTX*);
 int passwd_state(EDC_CTX*);
+int test_state(EDC_CTX* p_ctx);
 
 // EDC Utilities
 int init(EDC_CTX *p_ctx);
@@ -544,6 +546,7 @@ int proj_list_find_index(const PROJ_DATA *p_list, int list_size, const char* pro
 int save_emp_list(EMP_DATA *p_list, int list_size, const char *file_name, pthread_mutex_t *p_mutex);
 int save_edc_list(EDC_DATA *p_list, int list_size, const char *file_name, pthread_mutex_t *p_mutex);
 int save_proj_list(PROJ_DATA *p_list, int list_size, const char *file_name, pthread_mutex_t *p_mutex);
+int print_employee(EMP_DATA *p_emp);
 
 // EDC log Utilities
 int sync_log(EDC_CTX*);
@@ -623,6 +626,7 @@ int main(void)
         goto INIT_FAIL;
     }
 
+    ctx.state = TEST; //CLD
     log0(INFO, kModName, __func__, "Start main loop");
     while (kTrue)
     {
@@ -644,6 +648,8 @@ int main(void)
         case PASSWD:
             ret = passwd_state(&ctx);
             break;
+        case TEST:
+            ret = test_state(&ctx);
         default:
             log0(FATAL, kModName, __func__, "Never ever be here");
             ret = kFailure;
@@ -1160,17 +1166,19 @@ int init(EDC_CTX *p_ctx)
     }
 
     //log1(INFO, kModName, __func__, "Initialize log setup: %s", LOGLEVLE2STR[INFO]);
+    /*
     if (init_log(p_ctx, DEBUG) != kSuccess)
     {
         log0(ERROR, kModName, __func__, "Can not create log ctx.");
         return kFailure;
     }
     log0(INFO, kModName, __func__, "===== Log initializition =====");
+    */
 
-    p_ctx->state = IDLE;
+    p_ctx->state = QUOTA;
     p_ctx->connected = kFalse;
-    memset(p_ctx->project_code, 0, kMaxProjectCodeLen + 1);
 
+    /* CLD
     log1(INFO, kModName, __func__, "Load server setup: %s", kServerIni);
     if (load_server_set(p_ctx, kServerIni) != kSuccess)
     {
@@ -1208,6 +1216,7 @@ int init(EDC_CTX *p_ctx)
         log0(ERROR, kModName, __func__, "Can not create lkp_ctx mutex.");
         return kFailure;
     }
+    */
 
     log0(INFO, kModName, __func__, "Initialize main context");
     p_ctx->lkp_ctx = lkp_create();
@@ -1238,6 +1247,7 @@ int init(EDC_CTX *p_ctx)
         return kFailure;
     }
 
+    /* CLD
     log1(INFO, kModName, __func__, "Load network setup: %s", kNetworkIni);
     if (load_network_set(p_ctx, kNetworkIni) != kSuccess)
     {
@@ -1283,9 +1293,10 @@ int init(EDC_CTX *p_ctx)
         log0(ERROR, kModName, __func__, "Create sync thread failure.");
         return kFailure;
     }
+    */
 
     p_ctx->edc_log_num = 0;
-    memset(p_ctx->edc_tmp_log, 0, kMaxMemEDCLog * kMaxEDCLogLen);
+    //CLD memset(p_ctx->edc_tmp_log, 0, kMaxMemEDCLog * kMaxEDCLogLen);
 
     return kSuccess;
 }
@@ -1314,7 +1325,7 @@ int sync_lists(EDC_CTX *p_ctx)
     snprintf(tmp_proj_list, kMaxPathLen + 1, "%s%s", kProjListFile, kTempFileSuffix);
 
     // Employee Delta
-    log0(INFO, kModName, __func__, "Download Employee list to buffer");
+    log0(INFO, kModName, __func__, "Download Employee delta to buffer");
     len = dl_remote_list(p_ctx, kSyncEmpDeltaCmd,
                 emp_delta_buf, kMaxEmpListBuf + 1);
     if (len < 0)
@@ -1325,6 +1336,7 @@ int sync_lists(EDC_CTX *p_ctx)
     else
     {
         //Load delta, update current list
+        log1(DEBUG, kModName, __func__, "Employee delta: %s", emp_delta_buf);
         if (load_emp_delta(p_ctx->emp_list, &p_ctx->emp_num, emp_delta_buf, len, &p_ctx->emp_mutex) == kFailure)
         {
             log0(ERROR, kModName, __func__, "Load Employee delta failure");
@@ -1332,7 +1344,7 @@ int sync_lists(EDC_CTX *p_ctx)
         else
         {
             // save current list to local
-            log1(DEBUG, kModName, __func__, "Load Employee list ok, current num: %d", p_ctx->emp_num);
+            log1(DEBUG, kModName, __func__, "Load Employee delta ok, current num: %d", p_ctx->emp_num);
             if (save_emp_list(p_ctx->emp_list, p_ctx->emp_num, tmp_emp_list, &p_ctx->emp_mutex) == kSuccess)
             {
                 log2(INFO, kModName, __func__, "Rename Employee list %s -> %s", tmp_emp_list, kEmpListFile);
@@ -1373,7 +1385,7 @@ int sync_lists(EDC_CTX *p_ctx)
 
     // EDC list
     /* delta version
-    log0(INFO, kModName, __func__, "Download EDC list to buffer");
+    log0(INFO, kModName, __func__, "Download EDC delta to buffer");
     len = dl_remote_list(p_ctx, kSyncEdcCmd,
                 edc_delta_buf, kMaxEDCListBuf + 1);
     if (len < 0)
@@ -1384,6 +1396,7 @@ int sync_lists(EDC_CTX *p_ctx)
     else
     {
         //Load delta, update current list
+        log1(DEBUG, kModName, __func__, "EDC delta: %s", edc_delta_buf);
         if (load_edc_delta(p_ctx->edc_list, &p_ctx->edc_num, edc_delta_buf, len, &p_ctx->edc_mutex) == kFailure)
         {
             log0(ERROR, kModName, __func__, "Load EDC delta failure");
@@ -1440,6 +1453,8 @@ int sync_lists(EDC_CTX *p_ctx)
     else
     {
         // Download OK, test it.
+        log1(DEBUG, kModName, __func__, "Download EDC list to file ok: %s",
+                tmp_edc_list);
         if (load_edc_list(edc_list_tmp, kMaxEDCListSize,
                 tmp_edc_list, NULL) < 0)
         {
@@ -1459,7 +1474,7 @@ int sync_lists(EDC_CTX *p_ctx)
     }
 
     // Project list
-    log0(INFO, kModName, __func__, "Download Project list to buffer");
+    log0(INFO, kModName, __func__, "Download Project delta to buffer");
     len = dl_remote_list(p_ctx, kSyncProjDeltaCmd,
                 proj_delta_buf, kMaxProjListBuf + 1);
     if (len < 0)
@@ -1470,6 +1485,7 @@ int sync_lists(EDC_CTX *p_ctx)
     else
     {
         //Load delta, update current list
+        log1(DEBUG, kModName, __func__, "Project delta: %s", proj_delta_buf);
         if (load_proj_delta(p_ctx->proj_list, &p_ctx->proj_num, proj_delta_buf, len, &p_ctx->proj_mutex) == kFailure)
         {
             log0(ERROR, kModName, __func__, "Load Project delta failure");
@@ -1481,7 +1497,7 @@ int sync_lists(EDC_CTX *p_ctx)
             if (save_proj_list(p_ctx->proj_list,p_ctx->proj_num, tmp_proj_list, &p_ctx->proj_mutex) == kSuccess)
             {
                 log2(DEBUG, kModName, __func__, "Rename Project list %s -> %s", tmp_proj_list, kProjListFile);
-                if (rename(tmp_proj_list, kEmpListFile) == kFailure)
+                if (rename(tmp_proj_list, kProjListFile) == kFailure)
                 {
                     log2(ERROR, kModName, __func__, "Rename Project list %s -> %s failure",
                             tmp_proj_list, kEmpListFile);
@@ -1621,7 +1637,6 @@ int load_emp_delta(EMP_DATA *emp_list, int* list_size, char *delta, const int le
         load_emp.only_mono = (int)((*temp_buf == '0')?kTrue:kFalse);
 
         cur_ptr += (get_len + 1);
-        log2(DEBUG, kModName, __func__, "Fetch delta_action: %s(%d)", cur_ptr, strlen(cur_ptr));
         if ((get_len = get_str_before_char(cur_ptr, kNewLine,
                         temp_buf, kMaxReadLineLen)) == kFailure)
         {
@@ -2722,7 +2737,6 @@ int dl_remote_list_to_file(EDC_CTX *p_ctx, const char* sync_cmd, const char* fil
     send_len = snprintf(send_buf, kMaxReadLineLen,
             "%s\t%s\n", sync_cmd, p_ctx->edc_id);
 
-    log0(DEBUG, kModName, __func__, "CLD: Send request to Agent...");
     if (sock_write(sock, send_buf, send_len) != send_len)
     {
         log0(ERROR, kModName, __func__, "Send request of lists to server fail.");
@@ -2732,7 +2746,6 @@ int dl_remote_list_to_file(EDC_CTX *p_ctx, const char* sync_cmd, const char* fil
 
     // If database of server is empty, there will return 0
     // and the list file will be a empty file
-    log0(DEBUG, kModName, __func__, "CLD: Read request to Agent...");
     if ((total_recv = sock_read(sock,
             list_buf, kMaxEmpListBuf)) < 0)
     {
@@ -3180,6 +3193,92 @@ int invalid_card_state(EDC_CTX *p_ctx)
     return kSuccess;
 }
 
+int print_employee(EMP_DATA *p_emp)
+{
+    if (!p_emp)
+    {
+        log0(ERROR, kModName, __func__, "Parameter Fail!");
+        return kFailure;
+    }
+
+    log0(INFO, kModName, __func__, "---------- EMP_DATA ----------");
+    log1(INFO, kModName, __func__, "dep_name\t\t:%s", p_emp->dep_name);
+    log1(INFO, kModName, __func__, "dep_no\t\t:%s", p_emp->dep_no);
+    log1(INFO, kModName, __func__, "emp_no\t\t:%s", p_emp->emp_no);
+    log1(INFO, kModName, __func__, "card_sn\t\t:%s", p_emp->card_sn);
+    log1(INFO, kModName, __func__, "init_quota\t:%d", p_emp->init_quota);
+    log1(INFO, kModName, __func__, "curr_quota\t:%d", p_emp->curr_quota);
+    log1(INFO, kModName, __func__, "only_mono\t\t:%d", p_emp->only_mono);
+
+    return kSuccess;
+}
+
+int test_state(EDC_CTX* p_ctx)
+{
+    PRINTERCOUNT_V2 ptr_counter;
+
+    if (!p_ctx)
+    {
+        log0(ERROR, kModName, __func__, "Parameter Fail!");
+        return kFailure;
+    }
+    init_printertype(&(ptr_counter.photocopy));
+    init_printertype(&(ptr_counter.print));
+    init_printertype(&(ptr_counter.fax));
+    init_printertype(&(ptr_counter.scan));
+
+    log0(ERROR, kModName, __func__, "======= INITIAL =======");
+    log0(ERROR, kModName, __func__, "----- print count -----");
+    print_printertype(&(ptr_counter.print));
+    log0(ERROR, kModName, __func__, "----- copy count -----");
+    print_printertype(&(ptr_counter.photocopy));
+    log0(ERROR, kModName, __func__, "----- scan count -----");
+    print_printertype(&(ptr_counter.scan));
+
+
+    if (ptr_select(0, 1) < kSuccess)
+    {
+        log0(INFO, kModName, __func__,
+                "Set COM port printer failure");
+    }
+
+    if (ptr_count_init(p_ctx->lkp_ctx) < kSuccess)
+    {
+        log0(ERROR, kModName, __func__, "Initial print counter failure");
+        return kFailure;
+    }
+
+    if (ptr_count_get(p_ctx->lkp_ctx, &ptr_counter) < kSuccess)
+    {
+        log0(ERROR, kModName, __func__, "Get print counter failure");
+        return kFailure;
+    }
+
+    log0(ERROR, kModName, __func__, "======= AFTER GET =======");
+    log0(ERROR, kModName, __func__, "----- print count -----");
+    print_printertype(&(ptr_counter.print));
+    log0(ERROR, kModName, __func__, "----- copy count -----");
+    print_printertype(&(ptr_counter.photocopy));
+    log0(ERROR, kModName, __func__, "----- scan count -----");
+    print_printertype(&(ptr_counter.scan));
+
+    if (ptr_count_stop(p_ctx->lkp_ctx) < kSuccess)
+    {
+        log0(ERROR, kModName, __func__, "Stop print counter failure");
+        return kFailure;
+    }
+
+    log0(ERROR, kModName, __func__, "======= AFTER STOP =======");
+    log0(ERROR, kModName, __func__, "----- print count -----");
+    print_printertype(&(ptr_counter.print));
+    log0(ERROR, kModName, __func__, "----- copy count -----");
+    print_printertype(&(ptr_counter.photocopy));
+    log0(ERROR, kModName, __func__, "----- scan count -----");
+    print_printertype(&(ptr_counter.scan));
+
+    return kSuccess;
+}
+
 /*
  * How to detect scan?
  * Due to ptr_count_get() can only provide correct status of scan
@@ -3234,33 +3333,9 @@ int quota_state(EDC_CTX* p_ctx)
         return kFailure;
     }
 
-    if (p_ctx->project_code[0] == '\0')
-    {
-        snprintf(p_ctx->project_code, kMaxProjectCodeLen + 1, "%s", "0000");
-    }
-
-    if (set_led(p_ctx, kLEDGreen) < kSuccess)
-    {
-        log0(ERROR, kModName, __func__, "Can not set LED.");
-        return kFailure;
-    }
-
-    // Enable all backlight
-    if (set_backlight(p_ctx, 0xff))
-    {
-        log0(ERROR, kModName, __func__, "Can not open backlight in quota state.");
-        return kFailure;
-    }
-
-    snprintf(edc_log, kMaxEDCLogLen, PTN_CARD_VALID, p_ctx->curr_card_sn);
-    if (append_edc_log(p_ctx, CARD, edc_log) != kSuccess)
-    {
-        log0(ERROR, kModName, __func__, "Append EDC log failure");
-        return kFailure;
-    }
-
     // is_valid_card() will prepare curr_emp_idx
-    curr_emp = &(p_ctx->emp_list[p_ctx->curr_emp_idx]);
+    //CLDcurr_emp = &(p_ctx->emp_list[p_ctx->curr_emp_idx]);
+    curr_emp = &(p_ctx->emp_list[0]);    //CLD
     curr_edc = &(p_ctx->edc_list[0]);
     curr_quota = curr_emp->curr_quota;
 
@@ -3280,11 +3355,23 @@ int quota_state(EDC_CTX* p_ctx)
     log0(ERROR, kModName, __func__, "----- copy count -----");
     print_printertype(&(ptr_counter.photocopy));
     log0(ERROR, kModName, __func__, "----- scan count -----");
-        print_printertype(&(ptr_counter.scan));
+    print_printertype(&(ptr_counter.scan));
 
-    if (show_quota_info(p_ctx, curr_quota, gb, gs, go, cb, cs, co) != kSuccess)
+    if (p_ctx->project_code[0] == '\0')
     {
-        log0(ERROR, kModName, __func__, "Show quota screen failure");
+        snprintf(p_ctx->project_code, kMaxProjectCodeLen + 1, "%s", "0000");
+    }
+
+    if (set_led(p_ctx, kLEDGreen) < kSuccess)
+    {
+        log0(ERROR, kModName, __func__, "Can not set LED.");
+        return kFailure;
+    }
+
+    // Enable all backlight
+    if (set_backlight(p_ctx, 0xff))
+    {
+        log0(ERROR, kModName, __func__, "Can not open backlight in quota state.");
         return kFailure;
     }
 
@@ -3297,6 +3384,25 @@ int quota_state(EDC_CTX* p_ctx)
                 p_ctx->prt_con_type, curr_emp->only_mono);
     }
 
+    /* CLD
+    snprintf(edc_log, kMaxEDCLogLen, PTN_CARD_VALID, p_ctx->curr_card_sn);
+    if (append_edc_log(p_ctx, CARD, edc_log) != kSuccess)
+    {
+        log0(ERROR, kModName, __func__, "Append EDC log failure");
+        return kFailure;
+    }
+    print_employee(&(p_ctx->emp_list[p_ctx->curr_emp_idx]));
+
+    log0(ERROR, kModName, __func__, "----- scan count -----");
+    if (show_quota_info(p_ctx, curr_quota, gb, gs, go, cb, cs, co) != kSuccess)
+    {
+        log0(ERROR, kModName, __func__, "Show quota screen failure");
+        return kFailure;
+    }
+    */
+
+    log0(ERROR, kModName, __func__, "----- scan count -----");
+
     // Init print, start to statistic
     if (ptr_count_init(p_ctx->lkp_ctx) < kSuccess)
     {
@@ -3308,6 +3414,7 @@ int quota_state(EDC_CTX* p_ctx)
     curr_epoch = time(NULL);
     while (kTrue)
     {
+        /*CLD
         ret = get_press_key(p_ctx, &in_key);
         if (ret < 0)
         {
@@ -3327,6 +3434,20 @@ int quota_state(EDC_CTX* p_ctx)
                 break;
             }
         }
+        */
+
+        log0(ERROR, kModName, __func__, "----- print count -----");
+        print_printertype(&(ptr_counter.print));
+        log0(ERROR, kModName, __func__, "----- copy count -----");
+        print_printertype(&(ptr_counter.photocopy));
+        log0(ERROR, kModName, __func__, "----- scan count -----");
+        print_printertype(&(ptr_counter.scan));
+        status_action_flag = ((ptr_counter.u8_work_status & 0x01) == 0x00)?kTrue:kFalse;
+        usage_modified_flag = (!usage_same_as(&(ptr_counter.photocopy), &continue_photocopy_usage)
+                          || !usage_same_as(&(ptr_counter.print), &continue_print_usage));
+
+        log3(INFO, kModName, __func__, "Status flag: %8X, Modified flag: %d, u8_status: %8X",
+                status_action_flag, usage_modified_flag, ptr_counter.u8_work_status);
 
         if (ptr_count_get(p_ctx->lkp_ctx, &ptr_counter) < kSuccess)
         {
@@ -3342,13 +3463,14 @@ int quota_state(EDC_CTX* p_ctx)
         print_printertype(&(ptr_counter.photocopy));
         log0(ERROR, kModName, __func__, "----- scan count -----");
         print_printertype(&(ptr_counter.scan));
-        status_action_flag = ((ptr_counter.u8_work_status & 0x01) == 1)?kFalse:kTrue;
+        status_action_flag = ((ptr_counter.u8_work_status & 0x01) == 0x00)?kTrue:kFalse;
         usage_modified_flag = (!usage_same_as(&(ptr_counter.photocopy), &continue_photocopy_usage)
                           || !usage_same_as(&(ptr_counter.print), &continue_print_usage));
 
         log3(INFO, kModName, __func__, "Status flag: %8X, Modified flag: %d, u8_status: %8X",
                 status_action_flag, usage_modified_flag, ptr_counter.u8_work_status);
-        //break;  //CLD
+        break;  //CLD
+        /*
         if (status_action_flag || usage_modified_flag)
         {
             // Action
@@ -3414,7 +3536,9 @@ int quota_state(EDC_CTX* p_ctx)
                 break;
             }
         }
+        */
 
+        /*
         if (curr_epoch != time(NULL))
         {
             curr_epoch = time(NULL);
@@ -3423,9 +3547,17 @@ int quota_state(EDC_CTX* p_ctx)
             left_right_str(remain_line, kMaxLineWord + 1, remain_sec_str, p_ctx->edc_id);
             show_line(p_ctx, 0, remain_line);
         }
+        */
 
         usleep(kMicroPerSecond / 2);
     }
+
+    log0(ERROR, kModName, __func__, "----- print count -----");
+    print_printertype(&(ptr_counter.print));
+    log0(ERROR, kModName, __func__, "----- copy count -----");
+    print_printertype(&(ptr_counter.photocopy));
+    log0(ERROR, kModName, __func__, "----- scan count -----");
+    print_printertype(&(ptr_counter.scan));
 
     if (!usage_empty(&ptr_counter.photocopy)
             && gen_cost_log(p_ctx, COPY, &ptr_counter.photocopy) != kSuccess)
@@ -3725,6 +3857,7 @@ int usage_empty(PRINTERTYPE *p)
             return kFalse;
         }
     }
+
     if (p->u16_gray_scale_other != 0 ||
         p->u16_color_other != 0)
     {
