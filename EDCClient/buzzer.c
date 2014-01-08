@@ -2177,6 +2177,20 @@ int invalid_card_state(EDC_CTX *p_ctx)
     return kSuccess;
 }
 
+/*
+ * How to detect scan?
+ * Due to ptr_count_get() can only provide correct status of scan
+ * Use below algorithm to detect scan occurring:
+ * 1. If u8_work_status change from 0 to 1,
+ *    This mean some action is done.
+ *    Check every counter, if neither of them be changed,
+ *    We can judge this action is scan.
+ * 2. If counter of scan is changed,
+ *    Simpliy we know scan is occured.
+ * 3. BTW, old machine which interface is GPIO can't
+ *    return status correct. So we keep check counter to
+ *    verify it's running.
+ */
 int quota_state(EDC_CTX* p_ctx)
 {
     int ret;
@@ -2258,11 +2272,20 @@ int quota_state(EDC_CTX* p_ctx)
     init_printertype(&continue_photocopy_usage);
     memset(action_type, 0, kMaxLineWord + 1);
 
+    log0(ERROR, kModName, __func__, "----- print count -----");
+    print_printertype(&(ptr_counter.print));
+    log0(ERROR, kModName, __func__, "----- copy count -----");
+    print_printertype(&(ptr_counter.photocopy));
+    log0(ERROR, kModName, __func__, "----- scan count -----");
+        print_printertype(&(ptr_counter.scan));
+
+    /*CLD
     if (show_quota_info(p_ctx, curr_quota, gb, gs, go, cb, cs, co) != kSuccess)
     {
         log0(ERROR, kModName, __func__, "Show quota screen failure");
         return kFailure;
     }
+    */
 
     log2(DEBUG, kModName, __func__, "Set COM%d, only mono:%d",
                 p_ctx->prt_con_type, curr_emp->only_mono);
@@ -2316,27 +2339,16 @@ int quota_state(EDC_CTX* p_ctx)
         print_printertype(&(ptr_counter.print));
         log0(ERROR, kModName, __func__, "----- copy count -----");
         print_printertype(&(ptr_counter.photocopy));
-        /*
-         * How to detect scan?
-         * Due to ptr_count_get() can only provide correct status of scan
-         * Use below algorithm to detect scan occurring:
-         * 1. If u8_work_status change from 0 to 1,
-         *    This mean some action is done.
-         *    Check every counter, if neither of them be changed,
-         *    We can judge this action is scan.
-         * 2. If counter of scan is changed,
-         *    Simpliy we know scan is occured.
-         * 3. BTW, old machine which interface is GPIO can't
-         *    return status correct. So we keep check counter to
-         *    verify it's running.
-         */
+        log0(ERROR, kModName, __func__, "----- scan count -----");
+        print_printertype(&(ptr_counter.scan));
         status_action_flag = ((ptr_counter.u8_work_status & 0x01) == 1)?kFalse:kTrue;
         usage_modified_flag = (!usage_same_as(&(ptr_counter.photocopy), &continue_photocopy_usage)
                           || !usage_same_as(&(ptr_counter.print), &continue_print_usage));
 
         log3(INFO, kModName, __func__, "Status flag: %8X, Modified flag: %d, u8_status: %8X",
                 status_action_flag, usage_modified_flag, ptr_counter.u8_work_status);
-
+        break;  //CLD
+        /*
         if (status_action_flag || usage_modified_flag)
         {
             // Action
@@ -2413,6 +2425,7 @@ int quota_state(EDC_CTX* p_ctx)
         }
 
         usleep(kMicroPerSecond / 2);
+        */
     }
 
     if (!usage_empty(&ptr_counter.photocopy)
@@ -3733,10 +3746,11 @@ int read_rfid(EDC_CTX *p_ctx)
     {
         log1(ERROR, kModName, __func__,
                 "Read from com too long: %d", len);
-        return kFailure;
+        //return kFailure;
     }
 
     //CLD test card number
+    /*
     unsigned char temp[kMaxReadRFIDLen];
     unsigned char *t;
     t = temp;
@@ -3750,6 +3764,7 @@ int read_rfid(EDC_CTX *p_ctx)
     *t = '\0';
     log1(DEBUG, kModName, __func__, "Read data from RFID, len: %d", len);
     // A4 01 FD 12 1C 00 F8 FF 12 E0 90 00
+    */
 
     // Here is Hex to ASCII
     if (len > 0 && (pcData[0] == 0xA4 && pcData[1] == 0x01))
