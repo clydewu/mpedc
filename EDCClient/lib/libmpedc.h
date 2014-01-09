@@ -76,8 +76,6 @@ typedef struct
 	PRINTERTYPE fax;
 	// ±½´y
 	PRINTERTYPE scan;
-	// ¨ä¥L
-	unsigned short u16_other;
 
 	unsigned char u8_work_status;
 } __attribute__((packed)) PRINTERCOUNT_V2, *PPRINTERCOUNT_V2;

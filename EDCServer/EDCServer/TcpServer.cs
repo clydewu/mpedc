@@ -590,6 +590,7 @@ namespace EDCServer
                         string[] content_token = edc_log.content.Split(' ');
                         if (content_token[0] == "VALID")
                         {
+                            //TODO Exception here!!!其他資訊: 索引在陣列的界限之外。
                             string sql_insert_pq = string.Format("INSERT INTO [dbo].[PQCardInfo] (EDCNO, CardNumber, UserNumber, ProjectNO, CardDT)" +
                                 "VALUES ('{0}', '{1}', '{2}', '{3}', getdate())", edc_log.edc_no, content_token[1], edc_log.emp_no, edc_log.project_no);
                             SqlCommand cmd_Insert_pq = new SqlCommand(sql_insert_pq, sqlConn);
