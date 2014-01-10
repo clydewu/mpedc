@@ -650,6 +650,8 @@ int main(void)
         case PASSWD:
             ret = passwd_state(&ctx);
             break;
+        case TEST:
+            ret = test_state(&ctx);
         default:
             log0(FATAL, kModName, __func__, "Never ever be here");
             ret = kFailure;
@@ -3230,12 +3232,14 @@ int test_state(EDC_CTX* p_ctx)
     print_printertype(&(ptr_counter.scan));
 
 
+    log0(ERROR, kModName, __func__, "----- select -----");
     if (ptr_select(0, 1) < kSuccess)
     {
         log0(INFO, kModName, __func__,
                 "Set COM port printer failure");
     }
 
+    log0(ERROR, kModName, __func__, "============First unlock ============");
     if (ptr_count_init(p_ctx->lkp_ctx) < kSuccess)
     {
         log0(ERROR, kModName, __func__, "Initial print counter failure");
@@ -3255,6 +3259,7 @@ int test_state(EDC_CTX* p_ctx)
     print_printertype(&(ptr_counter.photocopy));
     log0(ERROR, kModName, __func__, "----- scan count -----");
     print_printertype(&(ptr_counter.scan));
+    sleep(5);
 
     if (ptr_count_stop(p_ctx->lkp_ctx) < kSuccess)
     {
@@ -3270,6 +3275,118 @@ int test_state(EDC_CTX* p_ctx)
     log0(ERROR, kModName, __func__, "----- scan count -----");
     print_printertype(&(ptr_counter.scan));
 
+    sleep(5);
+    log0(ERROR, kModName, __func__, "============ Second unlock ============");
+    if (ptr_count_init(p_ctx->lkp_ctx) < kSuccess)
+    {
+        log0(ERROR, kModName, __func__, "Initial print counter failure");
+        return kFailure;
+    }
+
+    if (ptr_count_get(p_ctx->lkp_ctx, &ptr_counter) < kSuccess)
+    {
+        log0(ERROR, kModName, __func__, "Get print counter failure");
+        return kFailure;
+    }
+
+    log0(ERROR, kModName, __func__, "======= AFTER GET =======");
+    log0(ERROR, kModName, __func__, "----- print count -----");
+    print_printertype(&(ptr_counter.print));
+    log0(ERROR, kModName, __func__, "----- copy count -----");
+    print_printertype(&(ptr_counter.photocopy));
+    log0(ERROR, kModName, __func__, "----- scan count -----");
+    print_printertype(&(ptr_counter.scan));
+    sleep(5);
+
+    if (ptr_count_stop(p_ctx->lkp_ctx) < kSuccess)
+    {
+        log0(ERROR, kModName, __func__, "Stop print counter failure");
+        return kFailure;
+    }
+
+    log0(ERROR, kModName, __func__, "======= AFTER STOP =======");
+    log0(ERROR, kModName, __func__, "----- print count -----");
+    print_printertype(&(ptr_counter.print));
+    log0(ERROR, kModName, __func__, "----- copy count -----");
+    print_printertype(&(ptr_counter.photocopy));
+    log0(ERROR, kModName, __func__, "----- scan count -----");
+    print_printertype(&(ptr_counter.scan));
+
+    sleep(5);
+    log0(ERROR, kModName, __func__, "============ 3rd unlock ============");
+    if (ptr_count_init(p_ctx->lkp_ctx) < kSuccess)
+    {
+        log0(ERROR, kModName, __func__, "Initial print counter failure");
+        return kFailure;
+    }
+
+    if (ptr_count_get(p_ctx->lkp_ctx, &ptr_counter) < kSuccess)
+    {
+        log0(ERROR, kModName, __func__, "Get print counter failure");
+        return kFailure;
+    }
+
+    log0(ERROR, kModName, __func__, "======= AFTER GET =======");
+    log0(ERROR, kModName, __func__, "----- print count -----");
+    print_printertype(&(ptr_counter.print));
+    log0(ERROR, kModName, __func__, "----- copy count -----");
+    print_printertype(&(ptr_counter.photocopy));
+    log0(ERROR, kModName, __func__, "----- scan count -----");
+    print_printertype(&(ptr_counter.scan));
+    sleep(5);
+
+    if (ptr_count_stop(p_ctx->lkp_ctx) < kSuccess)
+    {
+        log0(ERROR, kModName, __func__, "Stop print counter failure");
+        return kFailure;
+    }
+
+    log0(ERROR, kModName, __func__, "======= AFTER STOP =======");
+    log0(ERROR, kModName, __func__, "----- print count -----");
+    print_printertype(&(ptr_counter.print));
+    log0(ERROR, kModName, __func__, "----- copy count -----");
+    print_printertype(&(ptr_counter.photocopy));
+    log0(ERROR, kModName, __func__, "----- scan count -----");
+    print_printertype(&(ptr_counter.scan));
+    
+    
+    sleep(5);
+    log0(ERROR, kModName, __func__, "============ 4th unlock ============");
+    if (ptr_count_init(p_ctx->lkp_ctx) < kSuccess)
+    {
+        log0(ERROR, kModName, __func__, "Initial print counter failure");
+        return kFailure;
+    }
+
+    if (ptr_count_get(p_ctx->lkp_ctx, &ptr_counter) < kSuccess)
+    {
+        log0(ERROR, kModName, __func__, "Get print counter failure");
+        return kFailure;
+    }
+
+    log0(ERROR, kModName, __func__, "======= AFTER GET =======");
+    log0(ERROR, kModName, __func__, "----- print count -----");
+    print_printertype(&(ptr_counter.print));
+    log0(ERROR, kModName, __func__, "----- copy count -----");
+    print_printertype(&(ptr_counter.photocopy));
+    log0(ERROR, kModName, __func__, "----- scan count -----");
+    print_printertype(&(ptr_counter.scan));
+    sleep(5);
+
+    if (ptr_count_stop(p_ctx->lkp_ctx) < kSuccess)
+    {
+        log0(ERROR, kModName, __func__, "Stop print counter failure");
+        return kFailure;
+    }
+
+    log0(ERROR, kModName, __func__, "======= AFTER STOP =======");
+    log0(ERROR, kModName, __func__, "----- print count -----");
+    print_printertype(&(ptr_counter.print));
+    log0(ERROR, kModName, __func__, "----- copy count -----");
+    print_printertype(&(ptr_counter.photocopy));
+    log0(ERROR, kModName, __func__, "----- scan count -----");
+    print_printertype(&(ptr_counter.scan));
+    
     return kSuccess;
 }
 
@@ -3377,14 +3494,11 @@ int quota_state(EDC_CTX* p_ctx)
         return kFailure;
     }
 
-    log0(ERROR, kModName, __func__, "----- scan count -----");
     if (show_quota_info(p_ctx, curr_quota, gb, gs, go, cb, cs, co) != kSuccess)
     {
         log0(ERROR, kModName, __func__, "Show quota screen failure");
         return kFailure;
     }
-
-    log0(ERROR, kModName, __func__, "----- scan count -----");
 
     // Init print, start to statistic
     if (ptr_count_init(p_ctx->lkp_ctx) < kSuccess)
@@ -3562,6 +3676,8 @@ int quota_state(EDC_CTX* p_ctx)
         log0(ERROR, kModName, __func__, "Append EDC log failure");
         return kFailure;
     }
+
+    usleep(kMicroPerSecond);
 
     p_ctx->state = IDLE;
     return kSuccess;
