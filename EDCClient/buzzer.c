@@ -132,6 +132,11 @@ const int kMaxEmpListSize = MAX_EMP_LIST_SIZE;
 const int kMaxEDCListSize = MAX_EDC_LIST_SIZE;
 const int kMaxProjListSize = MAX_PROJ_LIST_SIZE;
 
+const int kMaxCommandLen = 128;
+const char kInitCmd[] = "./ptr_init";
+const char kInitArgInit[] = "init";
+const char kInitArgStop[] = "stop";
+
 const int kMaxDepartmentNameLen = MAX_DEP_NAME_LEN;
 const int kMaxDepartmentNOLen = MAX_DEP_NO_LEN;
 const int kMaxCardSNLen = MAX_CARD_SN_LEN;
@@ -3411,6 +3416,7 @@ int quota_state(EDC_CTX* p_ctx)
     char remain_sec_str[kMaxLineWord + 1];
     char remain_line[kMaxLineWord + 1];
     char edc_log[kMaxEDCLogLen];
+    char init_cmd[kMaxCommandLen + 1];
     EMP_DATA *curr_emp;
     EDC_DATA *curr_edc;
     int start_epoch;
@@ -3457,7 +3463,6 @@ int quota_state(EDC_CTX* p_ctx)
     init_printertype(&empty_usage);
     init_printertype(&continue_print_usage);
     init_printertype(&continue_photocopy_usage);
-    memset(action_type, 0, kMaxLineWord + 1);
 
     if (p_ctx->project_code[0] == '\0')
     {
@@ -3477,14 +3482,6 @@ int quota_state(EDC_CTX* p_ctx)
         return kFailure;
     }
 
-    log2(DEBUG, kModName, __func__, "Set COM%d, only mono:%d",
-                p_ctx->prt_con_type, curr_emp->only_mono);
-    if (ptr_select(p_ctx->prt_con_type, curr_emp->only_mono) < kSuccess)
-    {
-        log2(INFO, kModName, __func__,
-                "Set COM port printer failure: COM%d, only_mono: %d",
-                p_ctx->prt_con_type, curr_emp->only_mono);
-    }
 
     snprintf(edc_log, kMaxEDCLogLen, PTN_CARD_VALID, p_ctx->curr_card_sn);
     if (append_edc_log(p_ctx, CARD, edc_log) != kSuccess)
@@ -3499,11 +3496,35 @@ int quota_state(EDC_CTX* p_ctx)
         return kFailure;
     }
 
-    // Init print, start to statistic
-    if (ptr_count_init(p_ctx->lkp_ctx) < kSuccess)
+    if (p_ctx->prt_con_type == 0)
     {
-        log0(ERROR, kModName, __func__, "Initial print counter failure");
-        return kFailure;
+        snprintf(init_cmd, kMaxCommandLen + 1, "%s -%s %d %d",
+                kInitCmd, kInitArgInit, p_ctx->prt_con_type, curr_emp->only_mono);
+        //outside executable
+        log1(DEBUG, kModName, __func__, "Command: '%s'", init_cmd);
+        if (system(init_cmd) != kSuccess)
+        {
+            log0(ERROR, kModName, __func__, "Rue executable to initialize counter failure.");
+            return kFailure;
+        }
+    }
+    else
+    {
+        log2(DEBUG, kModName, __func__, "Set COM%d, only mono:%d",
+                    p_ctx->prt_con_type, curr_emp->only_mono);
+        if (ptr_select(p_ctx->prt_con_type, curr_emp->only_mono) < kSuccess)
+        {
+            log2(INFO, kModName, __func__,
+                    "Set COM port printer failure: COM%d, only_mono: %d",
+                    p_ctx->prt_con_type, curr_emp->only_mono);
+        }
+
+        // Init print, start to statistic
+        if (ptr_count_init(p_ctx->lkp_ctx) < kSuccess)
+        {
+            log0(ERROR, kModName, __func__, "Initial print counter failure");
+            return kFailure;
+        }
     }
 
     start_epoch = time(NULL);
@@ -3662,10 +3683,25 @@ int quota_state(EDC_CTX* p_ctx)
     usleep(kMicroPerSecond * kWaitSecDoubleBuzzer);
     buzzer(kMicroPerSecond * kBuzzerShort); 
     usleep(kMicroPerSecond * kWaitSecStopPtrCount);
-    if (ptr_count_stop(p_ctx->lkp_ctx) < kSuccess)
+    if (p_ctx->prt_con_type == 0)
     {
-        log0(ERROR, kModName, __func__, "Stop print counter failure");
-        return kFailure;
+        //outside executable
+        snprintf(init_cmd, kMaxCommandLen + 1, "%s -%s",
+                kInitCmd, kInitArgStop);
+        log1(DEBUG, kModName, __func__, "Command: '%s'", init_cmd);
+        if (system(init_cmd) != kSuccess)
+        {
+            log0(ERROR, kModName, __func__, "Rue executable to stop counter failure.");
+            return kFailure;
+        }
+    }
+    else
+    {
+        if (ptr_count_stop(p_ctx->lkp_ctx) < kSuccess)
+        {
+            log0(ERROR, kModName, __func__, "Stop print counter failure");
+            return kFailure;
+        }
     }
 
     snprintf(edc_log, kMaxEDCLogLen, (enject_or_timeout==1)?PTN_CARD_ENJECT:PTN_CARD_TIMEOUT,
