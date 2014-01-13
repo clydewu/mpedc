@@ -561,6 +561,7 @@ int get_file_size(const char* file_name);
 LOG_LEVEL g_log_level = DEBUG;
 int g_log_pipe[2];
 int g_log_fd;
+pthread_mutex_t *g_log_mutex = NULL;
 
 int main(void)
 {
@@ -2196,7 +2197,6 @@ int quota_state(EDC_CTX* p_ctx)
     int ret;
     char remain_sec_str[kMaxLineWord + 1];
     char remain_line[kMaxLineWord + 1];
-    char action_type[kMaxLineWord + 1];
     char edc_log[kMaxEDCLogLen];
     EMPLOYEE_DATA *curr_emp;
     EDC_DATA *curr_edc;
@@ -2223,7 +2223,6 @@ int quota_state(EDC_CTX* p_ctx)
     int co = 0;
 
     unsigned char in_key;
-
 
     if (!p_ctx)
     {
@@ -2270,14 +2269,13 @@ int quota_state(EDC_CTX* p_ctx)
     init_printertype(&empty_usage);
     init_printertype(&continue_print_usage);
     init_printertype(&continue_photocopy_usage);
-    memset(action_type, 0, kMaxLineWord + 1);
 
-    log0(ERROR, kModName, __func__, "----- print count -----");
+    log0(INFO, kModName, __func__, "----- print count -----");
     print_printertype(&(ptr_counter.print));
-    log0(ERROR, kModName, __func__, "----- copy count -----");
+    log0(INFO, kModName, __func__, "----- copy count -----");
     print_printertype(&(ptr_counter.photocopy));
-    log0(ERROR, kModName, __func__, "----- scan count -----");
-        print_printertype(&(ptr_counter.scan));
+    log0(INFO, kModName, __func__, "----- scan count -----");
+    print_printertype(&(ptr_counter.scan));
 
     /*CLD
     if (show_quota_info(p_ctx, curr_quota, gb, gs, go, cb, cs, co) != kSuccess)
@@ -2585,7 +2583,7 @@ int count2cost(PRINTERCOUNT_V2 *ptr_counter, int paper_size_a, int paper_size_b,
     *color_other = print->u16_gray_scale_other + copy->u16_color_other;
 
     // Count print cost
-    for (i = 1; i < kMaxPrtPage; i++)
+    for (i = 0; i < kMaxPrtPage; i++)
     {
         if (i < paper_size_a)
         {
@@ -4672,29 +4670,27 @@ int log_unlock()
     return kFailure;
 }
 
-static pthread_mutex_t* get_log_mutex()
+pthread_mutex_t* get_log_mutex()
 {
-    static pthread_mutex_t *mutex = NULL;
-
-    if (mutex)
+    if (g_log_mutex)
     {
-        return mutex;
+        return g_log_mutex;
     }
 
-    mutex = malloc(sizeof(pthread_mutex_t));
+    g_log_mutex = malloc(sizeof(pthread_mutex_t));
 
-    if (!mutex)
+    if (!g_log_mutex)
     {
         return NULL;
     }
 
-    if (pthread_mutex_init(mutex, NULL) != kSuccess)
+    if (pthread_mutex_init(g_log_mutex, NULL) != kSuccess)
     {
-        free(mutex);
-        mutex = NULL;
+        free(g_log_mutex);
+        g_log_mutex = NULL;
     }
 
-    return mutex;
+    return g_log_mutex;
 }
 
 int get_file_size(const char* file_name)
