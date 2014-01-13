@@ -32,11 +32,19 @@ namespace EDCServer
 
         public void Start()
         {
-            this.sqlConn.Open();
-            this.tcpListener = new TcpListener(IPAddress.Any, port);
-            this.listenThread = new Thread(new ThreadStart(ListenForClients));
-            this.listenThread.Start();
-            EventLog.WriteEntry("EDCAgent", "Start EDCAgent", EventLogEntryType.Information);
+            try
+            {
+                this.sqlConn.Open();
+                this.tcpListener = new TcpListener(IPAddress.Any, port);
+                this.listenThread = new Thread(new ThreadStart(ListenForClients));
+                this.listenThread.Start();
+                EventLog.WriteEntry("EDCAgent", "Start EDCAgent", EventLogEntryType.Information);
+            }
+            catch
+            {
+                EventLog.WriteEntry("EDCAgent", "Error occur when start Agent", EventLogEntryType.Error);
+                Application.Exit();
+            }
         }
 
         public void Close()
@@ -67,15 +75,24 @@ namespace EDCServer
             while (true)
             {
                 //blocks until a client has connected to the server
-                TcpClient client = this.tcpListener.AcceptTcpClient();
-                connectClient.Add(client);
+                try
+                {
+                    TcpClient client = this.tcpListener.AcceptTcpClient();
+                    connectClient.Add(client);
 
-                System.Diagnostics.Debug.WriteLine("New Connect, total:" + connectClient.Count);
-                EventLog.WriteEntry("EDCAgent", "New Client connected", EventLogEntryType.Information);
-                //create a thread to handle communication 
-                //with connected client
-                Thread clientThread = new Thread(new ParameterizedThreadStart(HandleClientComm));
-                clientThread.Start(client);
+                    System.Diagnostics.Debug.WriteLine("New Connect, total:" + connectClient.Count);
+                    EventLog.WriteEntry("EDCAgent", "New Client connected", EventLogEntryType.Information);
+                    //create a thread to handle communication 
+                    //with connected client
+                    Thread clientThread = new Thread(new ParameterizedThreadStart(HandleClientComm));
+                    clientThread.Start(client);
+                }
+                catch
+                {
+                    EventLog.WriteEntry("EDCAgent", "Error occur when establish client thread.", EventLogEntryType.Information);
+                }
+
+
             }
         }
 
@@ -192,14 +209,32 @@ namespace EDCServer
                         case C.kSyncLogCmd:
                             sync_edc_log(command);
                             break;
-                        case C.kSyncEmpOkCmd:
-                            // Call del_sync_emp of store-producedure
+                        case C.kSyncEmpDeltaCmd:
+                            send_str = get_emp_delta(cmd_tokens);
+                            send_buf = encoder.GetBytes(send_str);
+                            System.Diagnostics.Debug.WriteLine(send_str);
+                            //TODO write error check
+                            clientStream.Write(send_buf, 0, send_buf.Length);
+                            clientStream.Flush();
                             break;
-                        case C.kSyncEDCOkCmd:
-                            // Call del_sync_edc of store-producedure
+                        case C.kSyncEDCDeltaCmd:
                             break;
-                        case C.kSyncProjOkCmd:
-                            // Call del_sync_proj of store-producedure
+                        case C.kSyncProjDeltaCmd:
+                            send_str = get_proj_delta(cmd_tokens);
+                            send_buf = encoder.GetBytes(send_str);
+                            System.Diagnostics.Debug.WriteLine(send_str);
+                            //TODO write error check
+                            clientStream.Write(send_buf, 0, send_buf.Length);
+                            clientStream.Flush();
+                            break;
+                        case C.kSyncEmpDeltaOkCmd:
+                            emp_delta_ok(cmd_tokens);
+                            break;
+                        case C.kSyncEDCDeltaOkCmd:
+                            edc_delta_ok(cmd_tokens);
+                            break;
+                        case C.kSyncProjDeltaOkCmd:
+                            proj_delta_ok(cmd_tokens);
                             break;
                         default:
                             break;
@@ -221,6 +256,103 @@ namespace EDCServer
             tcpClient.Close();
             connectClient.Remove(tcpClient);
             EventLog.WriteEntry("EDCAgent", "Client thread terminated", EventLogEntryType.Information);
+        }
+
+        private string get_emp_delta(string[] plist)
+        {
+            StringBuilder emp_list = new StringBuilder();
+            SqlCommand sql_cmd;
+            SqlDataReader sql_reader;
+
+            sql_cmd = new SqlCommand("sp_SyncEDCInfo", sqlConn);
+            sql_cmd.CommandType = CommandType.StoredProcedure;
+            sql_cmd.Parameters.Add("@state", SqlDbType.VarChar, 20).Value = "get_sync_emp";
+            sql_cmd.Parameters.Add("@EDCNO", SqlDbType.VarChar, 50).Value = plist[1];
+
+            sql_reader = sql_cmd.ExecuteReader();
+            while (sql_reader.Read())
+            {
+                emp_list.Append(sql_reader["DepartmentName"]);
+                emp_list.Append("\t");
+                emp_list.Append(sql_reader["DepartmentNo"]);
+                emp_list.Append("\t");
+                emp_list.Append(sql_reader["UserNumber"]);
+                emp_list.Append("\t");
+                emp_list.Append(sql_reader["CardNumber"]);
+                emp_list.Append("\t");
+                emp_list.Append(sql_reader["IniQuota"]);
+                emp_list.Append("\t");
+                emp_list.Append(sql_reader["NowQuota"]);
+                emp_list.Append("\t");
+                emp_list.Append(sql_reader["IsColorPrint"]);
+                emp_list.Append("\t");
+                emp_list.Append(sql_reader["StatusType"]);
+                emp_list.Append("\n");
+            }
+            sql_reader.Close();
+            emp_list.Insert(0, emp_list.Length.ToString() + "|");
+            return emp_list.ToString();
+        }
+
+        private string get_proj_delta(string[] plist)
+        {
+            StringBuilder proj_list = new StringBuilder();
+            SqlCommand sql_cmd;
+            SqlDataReader sql_reader;
+
+            sql_cmd = new SqlCommand("sp_SyncEDCInfo", sqlConn);
+            sql_cmd.CommandType = CommandType.StoredProcedure;
+            sql_cmd.Parameters.Add("@state", SqlDbType.VarChar, 20).Value = "get_sync_prj";
+            sql_cmd.Parameters.Add("@EDCNO", SqlDbType.VarChar, 50).Value = plist[1];
+
+            sql_reader = sql_cmd.ExecuteReader();
+            while (sql_reader.Read())
+            {
+                proj_list.Append(sql_reader["ProjectNO"]);
+                proj_list.Append("\t");
+                proj_list.Append(sql_reader["StatusType"]);
+                proj_list.Append("\n");
+            }
+            sql_reader.Close();
+            proj_list.Insert(0, proj_list.Length.ToString() + "|");
+            return proj_list.ToString();
+        }
+
+        private void emp_delta_ok(string[] plist)
+        {
+            SqlCommand sql_cmd;
+
+            sql_cmd = new SqlCommand("sp_SyncEDCInfo", sqlConn);
+            sql_cmd.CommandType = CommandType.StoredProcedure;
+            sql_cmd.Parameters.Add("@state", SqlDbType.VarChar, 20).Value = "del_sync_emp";
+            sql_cmd.Parameters.Add("@EDCNO", SqlDbType.VarChar, 50).Value = plist[1];
+            sql_cmd.ExecuteNonQuery();
+        }
+
+        private void edc_delta_ok(string[] plist)
+        {
+            EventLog.WriteEntry("EDCAgent", "Not implement this function.", EventLogEntryType.Warning);
+            return;
+            /*
+            SqlCommand sql_cmd;
+             * 
+            sql_cmd = new SqlCommand("sp_SyncEDCInfo", sqlConn);
+            sql_cmd.CommandType = CommandType.StoredProcedure;
+            sql_cmd.Parameters.Add("@state", SqlDbType.VarChar, 20).Value = "del_sync_edc";
+            sql_cmd.Parameters.Add("@EDCNO", SqlDbType.VarChar, 50).Value = plist[1];
+            sql_cmd.ExecuteNonQuery();
+            */
+        }
+
+        private void proj_delta_ok(string[] plist)
+        {
+            SqlCommand sql_cmd;
+
+            sql_cmd = new SqlCommand("sp_SyncEDCInfo", sqlConn);
+            sql_cmd.CommandType = CommandType.StoredProcedure;
+            sql_cmd.Parameters.Add("@state", SqlDbType.VarChar, 20).Value = "del_sync_prj";
+            sql_cmd.Parameters.Add("@EDCNO", SqlDbType.VarChar, 50).Value = plist[1];
+            sql_cmd.ExecuteNonQuery();
         }
 
         private string get_employee_list(string[] plist)
@@ -458,6 +590,7 @@ namespace EDCServer
                         string[] content_token = edc_log.content.Split(' ');
                         if (content_token[0] == "VALID")
                         {
+                            //TODO Exception here!!!其他資訊: 索引在陣列的界限之外。
                             string sql_insert_pq = string.Format("INSERT INTO [dbo].[PQCardInfo] (EDCNO, CardNumber, UserNumber, ProjectNO, CardDT)" +
                                 "VALUES ('{0}', '{1}', '{2}', '{3}', getdate())", edc_log.edc_no, content_token[1], edc_log.emp_no, edc_log.project_no);
                             SqlCommand cmd_Insert_pq = new SqlCommand(sql_insert_pq, sqlConn);

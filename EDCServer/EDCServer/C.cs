@@ -10,9 +10,12 @@ namespace EDCServer
         public const string kSyncEDCCmd = "SYNC_EDC";
         public const string kSyncProjCmd = "SYNC_PROJ";
         public const string kSyncLogCmd = "SYNC_LOG";
-        public const string kSyncEmpOkCmd = "SYNC_EMP_OK";
-        public const string kSyncEDCOkCmd = "SYNC_EDC_OK";
-        public const string kSyncProjOkCmd = "SYNC_PROJ_OK";
+        public const string kSyncEmpDeltaCmd = "SYNC_EMP_DELTA";
+        public const string kSyncEDCDeltaCmd = "SYNC_EDC_DELTA";
+        public const string kSyncProjDeltaCmd = "SYNC_PROJ_DELTA";
+        public const string kSyncEmpDeltaOkCmd = "SYNC_EMP_DELTA_OK";
+        public const string kSyncEDCDeltaOkCmd = "SYNC_EDC_DELTA_OK";
+        public const string kSyncProjDeltaOkCmd = "SYNC_PROJ_DELTA_OK";
 
         public const string kFieldEDCID = "@edc_id";
         public const string kFieldEDCLog = "@edc_log";
