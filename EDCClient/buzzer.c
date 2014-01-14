@@ -210,7 +210,11 @@ const int kMaxCOMPortLen = MAX_COM_PORT_LEN;
 const int kMaxCOMCmdBuffer = MAX_COM_CMD_BUFFER;
 const char kSendComSignal[] = {0x80, 0xA4, 0x00, 0x02, 0x09};
 const int kMaxReadRFIDLen = 256;
-const int kMaxCardReadLen = 12;
+const int kMaxCardReadLen = 16;
+const int kIdxRFIDOffset = 13;
+const int kIdxRFIDCardHi = 14;
+const int kIdxRFIDCardLow = 15;
+const int kRFIDOffset = 0x8000;
 const int kMaxConnectTypeLen = 8;
 const int kConnectTypeMin = 0;
 const int kConnectTypeMax = 4;
@@ -3098,10 +3102,10 @@ int idle_state(EDC_CTX *p_ctx)
             show_line(p_ctx, 1, (cur_edc_num==0)?STR_DISABLE:STR_PLEASE_CARD);
         }
 
+        // This EDC is registed in server, OK, detect card
         if (p_ctx->edc_num > 0)
         {
-            // This EDC is registed in server, OK, detect card
-            serWriteCOM(&p_ctx->com_ctx, kSendComSignal, sizeof(kSendComSignal));
+            //serWriteCOM(&p_ctx->com_ctx, kSendComSignal, sizeof(kSendComSignal));
             usleep(kMicroPerSecond * kWaitSecReadComPort);
             if (read_rfid(p_ctx) == kSuccess)
             {
@@ -4976,6 +4980,7 @@ int read_rfid(EDC_CTX *p_ctx)
     int i;
     int len = 0;
     char *pos;
+    int card_sn;
     unsigned char pcData[kMaxReadRFIDLen];
 
 
@@ -4989,15 +4994,15 @@ int read_rfid(EDC_CTX *p_ctx)
 
     memset(pcData, '\0', kMaxReadRFIDLen);
     len = serReadCOM(&p_ctx->com_ctx, pcData, kMaxReadRFIDLen);
-    if (len > kMaxCardReadLen)
+    if (len < kMaxCardReadLen)
     {
-        log1(ERROR, kModName, __func__,
-                "Read from com too long: %d", len);
-        //return kFailure;
+        log1(DEBUG, kModName, __func__,
+                "Read string from RFID too short: %d", len);
+        return kFailure;
     }
 
-    //CLD test card number
     /*
+    //CLD test card number
     unsigned char temp[kMaxReadRFIDLen];
     unsigned char *t;
     t = temp;
@@ -5013,6 +5018,15 @@ int read_rfid(EDC_CTX *p_ctx)
     // A4 01 FD 12 1C 00 F8 FF 12 E0 90 00
     */
 
+    card_sn = pcData[kIdxRFIDCardHi] * 256 + pcData[kIdxRFIDCardLow] +
+                (((pcData[kIdxRFIDOffset] & 0x01) == 0x01)?0:kRFIDOffset);
+
+    log1(DEBUG, kModName, __func__, "Get RFID Card SN: %d", card_sn);
+    snprintf(p_ctx->curr_card_sn, kMaxCardSNLen + 1, "%d", card_sn);
+
+    return kSuccess;
+
+    /*
     // Here is Hex to ASCII
     if (len > 0 && (pcData[0] == 0xA4 && pcData[1] == 0x01))
     {
@@ -5034,8 +5048,7 @@ int read_rfid(EDC_CTX *p_ctx)
         //show_line(p_ctx, 3, p_ctx->curr_card_sn);
         return kSuccess;
     }
-
-    return kFailure;
+    */
 }
 
 int is_valid_card(EDC_CTX *p_ctx)
