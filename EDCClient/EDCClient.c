@@ -15,7 +15,7 @@
 #include <arpa/inet.h>
 #include <sys/stat.h>
 
-#include "matrix500.h"
+#include "lib/matrix500.h"
 #include "lib/libmpedc.h"
 
 #define MAX_COM_PORT_LEN    (64)
@@ -4996,8 +4996,9 @@ int read_rfid(EDC_CTX *p_ctx)
     len = serReadCOM(&p_ctx->com_ctx, pcData, kMaxReadRFIDLen);
     if (len < kMaxCardReadLen)
     {
-        log1(DEBUG, kModName, __func__,
-                "Read string from RFID too short: %d", len);
+
+        //log1(DEBUG, kModName, __func__,
+        //        "Read string from RFID too short, length: %d", len);
         return kFailure;
     }
 
@@ -5021,9 +5022,13 @@ int read_rfid(EDC_CTX *p_ctx)
     card_sn = pcData[kIdxRFIDCardHi] * 256 + pcData[kIdxRFIDCardLow] +
                 (((pcData[kIdxRFIDOffset] & 0x01) == 0x01)?0:kRFIDOffset);
 
-    log1(DEBUG, kModName, __func__, "Get RFID Card SN: %d", card_sn);
-    snprintf(p_ctx->curr_card_sn, kMaxCardSNLen + 1, "%d", card_sn);
+    if (card_sn == 0)
+    {
+        return kFalse;
+    }
 
+    log1(DEBUG, kModName, __func__, "Get RFID Card SN: %08d", card_sn);
+    snprintf(p_ctx->curr_card_sn, kMaxCardSNLen + 1, "%08d", card_sn);
     return kSuccess;
 
     /*

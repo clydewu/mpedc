@@ -7,7 +7,7 @@ ifconfig lo 127.0.0.1
 route add -net 127.0.0.0 netmask 255.255.255.0 lo
 mount /mnt/mmc
 /mnt/disk/cron
-/home/test/edc_net_setup.sh /home/test/edc_network.conf
+/home/EDC/edc_net_setup.sh /home/EDC/edc_network.conf
 
 if [ $? != 0 ]; then
 	ifconfig eth0 192.168.7.251 netmask 255.255.255.0
@@ -16,7 +16,7 @@ fi
 
 cat /etc/motd
 ln -s /home/work/gconv/ /lib/
-cd /home/test/
+cd /home/EDC/
 ./edc_show_ip.sh ./edc_network.conf
 sleep 5
-./test.out &
+./EDCClient &

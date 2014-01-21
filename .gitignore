@@ -2,7 +2,7 @@
 EDCServer/EDCServer/obj/*
 EDCServer/EDCServer/bin/*
 EDCClient/cscope.out
-EDCClient/test.out
+EDCClient/EDCClient
 EDCClient/show_screen
 EDCClient/ptr_init
 EDCServer/EDCServer.v11.suo
