@@ -11,11 +11,17 @@ if [ ! -d /mnt/disk ];then
     exit -1
 fi
 mv cron /mnt/disk
+chown root@root /mnt/disk/cron
+chmod 4755 /mnt/disk/cron
 
+# TODO This seem no work to place here.
 if [ ! -d /etc/cron.d/ ]; then
     mkdir -p /etc/cron.d/
 fi
 mv EDCClient.cron /etc/cron.d/
+
+# Set localtime file
+mv localtime /etc
 
 #mv /etc/rc /etc/rc.`date +%Y%m%d%H%M%S`.bak
 mv /etc/rc /etc/rc.`date +%Y%m%d%H%M%S`.bak

@@ -40,9 +40,9 @@ namespace EDCServer
                 this.listenThread.Start();
                 EventLog.WriteEntry("EDCAgent", "Start EDCAgent", EventLogEntryType.Information);
             }
-            catch
+            catch (Exception ex)
             {
-                EventLog.WriteEntry("EDCAgent", "Error occur when start Agent", EventLogEntryType.Error);
+                EventLog.WriteEntry("EDCAgent", String.Format("Error occur when start Agent: {0}", ex.Message), EventLogEntryType.Error);
                 Application.Exit();
             }
         }
@@ -107,153 +107,163 @@ namespace EDCServer
             
             List<string> command_list = new List<string>();
 
-            clientStream = tcpClient.GetStream();
-            System.Diagnostics.Debug.WriteLine("Start read from client" + client.GetHashCode());
-            EventLog.WriteEntry("EDCAgent", "Client thread start", EventLogEntryType.Information);
-
-            while (true)
+            try
             {
-                bytes_read = 0;
-                try
-                {
-                    //blocks until a client sends a message 
-                    buf_read = new byte[C.kBufSize];
-                    bytes_read = clientStream.Read(buf_read, 0, C.kBufSize);
-                }
-                catch
-                {
-                    //a socket error has occured
-                    System.Diagnostics.Debug.WriteLine("IOError");
-                    EventLog.WriteEntry("EDCAgent", "Client stream read failure", EventLogEntryType.FailureAudit);
-                    break;
-                }
+                clientStream = tcpClient.GetStream();
+                System.Diagnostics.Debug.WriteLine("Start read from client" + client.GetHashCode());
+                EventLog.WriteEntry("EDCAgent", "Client thread start", EventLogEntryType.Information);
 
-                if (bytes_read == 0)
+                while (true)
                 {
-                    //the client has disconnected from the server
-                    System.Diagnostics.Debug.WriteLine("Disconnect");
-                    EventLog.WriteEntry("EDCAgent", "EDCClient disconnect", EventLogEntryType.Information);
-                    break;
-                    //throw new Exception("Disconnect");
-                }
-
-                //message has successfully been received
-                ASCIIEncoding encoder = new ASCIIEncoding();
-                recv_str += encoder.GetString(buf_read, 0, bytes_read);
-                //EventLog.WriteEntry("EDCAgent", "Client thread receive:" + recv_str, EventLogEntryType.Information);
-
-                while (true) 
-                {
-                    // header include '|'
-                    int header_len = recv_str.IndexOf("|") + 1;
-                    int content_length = 0;
-                    if (header_len <= 1)
-                    {
-                        //Can't find '|', read more
-                        break;
-                    }
-
+                    bytes_read = 0;
                     try
                     {
-                        content_length = int.Parse(recv_str.Substring(0, header_len - 1));
+                        //blocks until a client sends a message 
+                        buf_read = new byte[C.kBufSize];
+                        bytes_read = clientStream.Read(buf_read, 0, C.kBufSize);
                     }
                     catch
                     {
-                        //Protocol error, skip current receive payload
-                        recv_str = "";
+                        //a socket error has occured
+                        System.Diagnostics.Debug.WriteLine("IOError");
+                        EventLog.WriteEntry("EDCAgent", "Client stream read failure", EventLogEntryType.FailureAudit);
                         break;
                     }
 
-                    if (recv_str.Length - header_len < content_length)
+                    if (bytes_read == 0)
                     {
-                        //There are still unread payload, read more
+                        //the client has disconnected from the server
+                        System.Diagnostics.Debug.WriteLine("Disconnect");
+                        EventLog.WriteEntry("EDCAgent", "EDCClient disconnect", EventLogEntryType.Information);
                         break;
+                        //throw new Exception("Disconnect");
                     }
 
-                    // OK, now I have at least one command
-                    string command = recv_str.Substring(header_len, content_length);
+                    //message has successfully been received
+                    ASCIIEncoding encoder = new ASCIIEncoding();
+                    recv_str += encoder.GetString(buf_read, 0, bytes_read);
+                    //EventLog.WriteEntry("EDCAgent", "Client thread receive:" + recv_str, EventLogEntryType.Information);
 
-                    string[] cmd_tokens = command.Split('\n')[0].Split('\t');
-                    string cmd = cmd_tokens[0];
-                    string send_str = "";
+                    while (true)
+                    {
+                        // header include '|'
+                        int header_len = recv_str.IndexOf("|") + 1;
+                        int content_length = 0;
+                        if (header_len <= 1)
+                        {
+                            //Can't find '|', read more
+                            break;
+                        }
 
-                    switch (cmd)
-                    {
-                        case C.kSyncEmpCmd:
-                            send_str = get_employee_list(cmd_tokens);   
-                            send_buf = encoder.GetBytes(send_str);
-                            System.Diagnostics.Debug.WriteLine(send_str);
-                            clientStream.Write(send_buf, 0, send_buf.Length);
-                            //clientStream.Write(send_buf, 0, 0);
-                            clientStream.Flush();
-                            //EventLog.WriteEntry("EDCAgent", "Client thread send:" + send_str, EventLogEntryType.Information);
+                        try
+                        {
+                            content_length = int.Parse(recv_str.Substring(0, header_len - 1));
+                        }
+                        catch
+                        {
+                            //Protocol error, skip current receive payload
+                            recv_str = "";
                             break;
-                        case C.kSyncEDCCmd:
-                            send_str = get_edc_list(cmd_tokens);
-                            send_buf = encoder.GetBytes(send_str);
-                            System.Diagnostics.Debug.WriteLine(send_str);
-                            clientStream.Write(send_buf, 0, send_buf.Length);
-                            //clientStream.Write(send_buf, 0, 0);
-                            clientStream.Flush();
-                            //EventLog.WriteEntry("EDCAgent", "Client thread send:" + send_str, EventLogEntryType.Information);
-                            break;
-                        case C.kSyncProjCmd:
-                            send_str = get_proj_list(cmd_tokens);
-                            send_buf = encoder.GetBytes(send_str);
-                            System.Diagnostics.Debug.WriteLine(send_str);
-                            clientStream.Write(send_buf, 0, send_buf.Length);
-                            //clientStream.Write(send_buf, 0, 0);
-                            clientStream.Flush();
-                            //EventLog.WriteEntry("EDCAgent", "Client thread send:" + send_str, EventLogEntryType.Information);
-                            break;
-                        case C.kSyncLogCmd:
-                            sync_edc_log(command);
-                            break;
-                        case C.kSyncEmpDeltaCmd:
-                            send_str = get_emp_delta(cmd_tokens);
-                            send_buf = encoder.GetBytes(send_str);
-                            System.Diagnostics.Debug.WriteLine(send_str);
-                            //TODO write error check
-                            clientStream.Write(send_buf, 0, send_buf.Length);
-                            clientStream.Flush();
-                            break;
-                        case C.kSyncEDCDeltaCmd:
-                            break;
-                        case C.kSyncProjDeltaCmd:
-                            send_str = get_proj_delta(cmd_tokens);
-                            send_buf = encoder.GetBytes(send_str);
-                            System.Diagnostics.Debug.WriteLine(send_str);
-                            //TODO write error check
-                            clientStream.Write(send_buf, 0, send_buf.Length);
-                            clientStream.Flush();
-                            break;
-                        case C.kSyncEmpDeltaOkCmd:
-                            emp_delta_ok(cmd_tokens);
-                            break;
-                        case C.kSyncEDCDeltaOkCmd:
-                            edc_delta_ok(cmd_tokens);
-                            break;
-                        case C.kSyncProjDeltaOkCmd:
-                            proj_delta_ok(cmd_tokens);
-                            break;
-                        default:
-                            break;
-                    }
+                        }
 
-                    int protocol_len = header_len + content_length;
-                    if (recv_str.Length > protocol_len)
-                    {
-                        recv_str = recv_str.Substring(header_len + content_length);
-                    }
-                    else
-                    {
-                        recv_str = "";
-                        break;
+                        if (recv_str.Length - header_len < content_length)
+                        {
+                            //There are still unread payload, read more
+                            break;
+                        }
+
+                        // OK, now I have at least one command
+                        string command = recv_str.Substring(header_len, content_length);
+
+                        string[] cmd_tokens = command.Split('\n')[0].Split('\t');
+                        string cmd = cmd_tokens[0];
+                        string send_str = "";
+
+                        switch (cmd)
+                        {
+                            case C.kSyncEmpCmd:
+                                send_str = get_employee_list(cmd_tokens);
+                                send_buf = encoder.GetBytes(send_str);
+                                System.Diagnostics.Debug.WriteLine(send_str);
+                                clientStream.Write(send_buf, 0, send_buf.Length);
+                                //clientStream.Write(send_buf, 0, 0);
+                                clientStream.Flush();
+                                //EventLog.WriteEntry("EDCAgent", "Client thread send:" + send_str, EventLogEntryType.Information);
+                                break;
+                            case C.kSyncEDCCmd:
+                                send_str = get_edc_list(cmd_tokens);
+                                send_buf = encoder.GetBytes(send_str);
+                                System.Diagnostics.Debug.WriteLine(send_str);
+                                clientStream.Write(send_buf, 0, send_buf.Length);
+                                //clientStream.Write(send_buf, 0, 0);
+                                clientStream.Flush();
+                                //EventLog.WriteEntry("EDCAgent", "Client thread send:" + send_str, EventLogEntryType.Information);
+                                break;
+                            case C.kSyncProjCmd:
+                                send_str = get_proj_list(cmd_tokens);
+                                send_buf = encoder.GetBytes(send_str);
+                                System.Diagnostics.Debug.WriteLine(send_str);
+                                clientStream.Write(send_buf, 0, send_buf.Length);
+                                //clientStream.Write(send_buf, 0, 0);
+                                clientStream.Flush();
+                                //EventLog.WriteEntry("EDCAgent", "Client thread send:" + send_str, EventLogEntryType.Information);
+                                break;
+                            case C.kSyncLogCmd:
+                                sync_edc_log(command);
+                                break;
+                            case C.kSyncEmpDeltaCmd:
+                                send_str = get_emp_delta(cmd_tokens);
+                                send_buf = encoder.GetBytes(send_str);
+                                System.Diagnostics.Debug.WriteLine(send_str);
+                                //TODO write error check
+                                clientStream.Write(send_buf, 0, send_buf.Length);
+                                clientStream.Flush();
+                                break;
+                            case C.kSyncEDCDeltaCmd:
+                                break;
+                            case C.kSyncProjDeltaCmd:
+                                send_str = get_proj_delta(cmd_tokens);
+                                send_buf = encoder.GetBytes(send_str);
+                                System.Diagnostics.Debug.WriteLine(send_str);
+                                //TODO write error check
+                                clientStream.Write(send_buf, 0, send_buf.Length);
+                                clientStream.Flush();
+                                break;
+                            case C.kSyncEmpDeltaOkCmd:
+                                emp_delta_ok(cmd_tokens);
+                                break;
+                            case C.kSyncEDCDeltaOkCmd:
+                                edc_delta_ok(cmd_tokens);
+                                break;
+                            case C.kSyncProjDeltaOkCmd:
+                                proj_delta_ok(cmd_tokens);
+                                break;
+                            default:
+                                break;
+                        }
+
+                        int protocol_len = header_len + content_length;
+                        if (recv_str.Length > protocol_len)
+                        {
+                            recv_str = recv_str.Substring(header_len + content_length);
+                        }
+                        else
+                        {
+                            recv_str = "";
+                            break;
+                        }
                     }
                 }
             }
+            catch (Exception ex)
+            {
+                EventLog.WriteEntry("EDCAgent", string.Format("Unexception error occur in client thread: {0}", ex.Message), EventLogEntryType.Error);
+            }
+            finally
+            {
+                tcpClient.Close();
+            }
 
-            tcpClient.Close();
             connectClient.Remove(tcpClient);
             EventLog.WriteEntry("EDCAgent", "Client thread terminated", EventLogEntryType.Information);
         }
@@ -578,7 +588,7 @@ namespace EDCServer
                     SqlCommand sql_insert_log = new SqlCommand("INSERT INTO [dbo].[EDCLogTmp] (EDCLog) VALUES (@edc_log)", sqlConn);
                     sql_insert_log.Parameters.Add(C.kFieldEDCLog, SqlDbType.NVarChar);
                     sql_insert_log.Parameters[C.kFieldEDCLog].Value = recv_list[i].Trim();
-                    sql_insert_log.CommandType = System.Data.CommandType.Text;
+                    sql_insert_log.CommandType = System.Data.CommandType.Text;  
                     if (sql_insert_log.ExecuteNonQuery() != 1)
                     {
                         System.Diagnostics.Debug.WriteLine("Write log to DB error");
@@ -591,8 +601,9 @@ namespace EDCServer
                         if (content_token[0] == "VALID")
                         {
                             //TODO Exception here!!!其他資訊: 索引在陣列的界限之外。
+                            //getdate()改用edc_log.log_time寫入EDC的時間
                             string sql_insert_pq = string.Format("INSERT INTO [dbo].[PQCardInfo] (EDCNO, CardNumber, UserNumber, ProjectNO, CardDT)" +
-                                "VALUES ('{0}', '{1}', '{2}', '{3}', getdate())", edc_log.edc_no, content_token[1], edc_log.emp_no, edc_log.project_no);
+                                "VALUES ('{0}', '{1}', '{2}', '{3}', '{4}')", edc_log.edc_no, content_token[1], edc_log.emp_no, edc_log.project_no, edc_log.log_time);
                             SqlCommand cmd_Insert_pq = new SqlCommand(sql_insert_pq, sqlConn);
                             cmd_Insert_pq.CommandType = System.Data.CommandType.Text;
                             if (cmd_Insert_pq.ExecuteNonQuery() != 1)
@@ -608,7 +619,8 @@ namespace EDCServer
                         foreach (KeyValuePair<string, int> usage in paper_usage)
                         {
                             string sql_insert_cc = string.Format("INSERT INTO [dbo].[CopyCount] (EDCNO, ProjectNO, UserNumber, PrintType, PrintCount, UseDT)" +
-                                    "VALUES ('{0}', '{1}', '{2}', '{3}', '{4}', getdate())", edc_log.edc_no, edc_log.project_no, edc_log.emp_no, usage.Key, usage.Value);
+                                    "VALUES ('{0}', '{1}', '{2}', '{3}', '{4}', '{5}')",
+                                    edc_log.edc_no, edc_log.project_no, edc_log.emp_no, usage.Key, usage.Value, edc_log.log_time);
                             //MessageBox.Show(sql_insert_cc);
                             SqlCommand cmd_insert_cc = new SqlCommand(sql_insert_cc, sqlConn);
                             cmd_insert_cc.CommandType = System.Data.CommandType.Text;
@@ -623,7 +635,7 @@ namespace EDCServer
                     else if (edc_log.type == "SCAN")
                     {
                         string sql_scan = string.Format("INSERT INTO [dbo].[SEFScanInfo] (EDCNO, UserNumber, ProjectNo, ScanDT)" +
-                            "VALUES ( '{0}', '{1}', '{2}', getdate())", edc_log.edc_no, edc_log.emp_no, edc_log.project_no);
+                            "VALUES ( '{0}', '{1}', '{2}', '{3}')", edc_log.edc_no, edc_log.emp_no, edc_log.project_no, edc_log.log_time);
                         SqlCommand cmd_scan = new SqlCommand(sql_scan, sqlConn);
                         cmd_scan.CommandType = System.Data.CommandType.Text;
                         if (cmd_scan.ExecuteNonQuery() != 1)

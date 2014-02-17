@@ -6,13 +6,15 @@ MAIN_BIN="EDCClient show_screen ptr_init"
 CRON_DIR="cron/"
 CRON_FILE="cron EDCClient.cron"
 RESOURCE_DIR="resource/"
-RESOURCE_FILE="stdfont.15f"
+RESOURCE_FILE="stdfont.15f localtime"
 LIST_DIR="list/"
 LIST_FILE="edc.list employee.list projects.list"
 CONF_DIR="conf/"
 CONF_FILE="comtest.ini edc_network.conf edc_setup.conf"
 SCRIPT_DIR="script/"
 SCRIPT_FILE="edc_net_setup.sh edc_show_ip.sh set_time.sh install.sh rc"
+
+# !NOTE All files are placed in the same folder
 
 # Create directory
 if [ ! -d $TMP_DIR ]; then
