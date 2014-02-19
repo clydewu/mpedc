@@ -14,7 +14,6 @@ mv cron /mnt/disk
 chown root@root /mnt/disk/cron
 chmod 4755 /mnt/disk/cron
 
-# TODO This seem no work to place here.
 if [ ! -d /etc/cron.d/ ]; then
     mkdir -p /etc/cron.d/
 fi

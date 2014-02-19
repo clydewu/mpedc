@@ -279,6 +279,7 @@ namespace EDCServer
             sql_cmd.Parameters.Add("@state", SqlDbType.VarChar, 20).Value = "get_sync_emp";
             sql_cmd.Parameters.Add("@EDCNO", SqlDbType.VarChar, 50).Value = plist[1];
 
+
             sql_reader = sql_cmd.ExecuteReader();
             while (sql_reader.Read())
             {
@@ -299,8 +300,9 @@ namespace EDCServer
                 emp_list.Append(sql_reader["StatusType"]);
                 emp_list.Append("\n");
             }
-            sql_reader.Close();
             emp_list.Insert(0, emp_list.Length.ToString() + "|");
+            sql_reader.Close();
+
             return emp_list.ToString();
         }
 
