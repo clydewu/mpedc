@@ -200,6 +200,7 @@ const char kSetupStrServerPort[] = "port";
 const char kSetupStrEDCID[] = "id";
 const char kSetupStrFnPasswd[] = "passwd";
 const char kSetupStrPRTCON[] = "com";
+const char kSetupStrReaderMode[] = "reader";
 const char kSetupSelfIP[] = "ip";
 const char kSetupSubmask[] = "submask";
 const char kSetupGateway[] = "gateway";
@@ -218,6 +219,9 @@ const int kRFIDOffset = 0x8000;
 const int kMaxConnectTypeLen = 8;
 const int kConnectTypeMin = 0;
 const int kConnectTypeMax = 4;
+const int kMaxReaderModeTypeLen = 8;
+const int kReaderModeMin= 0;
+const int kReaderModeMax = 1;
 const int kMaxSocketPortMin = 1;
 const int kMaxSocketPortMax = 65535;
 const int kMaxPasswdLen = MAX_PASSWD_LEN;
@@ -278,6 +282,7 @@ const char STR_COLOR_OTHER[] = "彩特";
 const char STR_REMAIN_SEC[] = "剩秒";
 const char STR_ERROR[] = "發生錯誤";
 const char STR_SETUP_PRT_CON_TYPE[] = "設定COM Port";
+const char STR_SETUP_READER_TYPE[] = "設定卡機模式";
 const char STR_SETUP_EDC_ID[] = "設定EDC ID";
 const char STR_SETUP_EDC_IP[] = "設定IP";
 const char STR_SETUP_SUBMASK[] = "設定Submask";
@@ -357,6 +362,7 @@ const char STATE2STR[6][MAX_STATE_LEN] =
 typedef enum _fn_state
 {
     SET_PRT_TYPE,
+    SET_READER_TYPE,
     SET_EDC_ID,
     SET_EDC_IP,
     SET_SUBMASK,
@@ -390,6 +396,12 @@ typedef enum _prt_con_type
     DIO = 0,
     COM = 3
 } PRT_CON_TYPE;
+
+typedef enum _reader_mode
+{
+    HID = 0,
+    MIFARE = 1
+} READER_MODE;
 
 const char PTN_CARD_VALID[] = "VALID %s";
 const char PTN_CARD_INVALID[] = "INVALID %s";
@@ -466,6 +478,7 @@ typedef struct _edc_ctx
     char            server_ip[MAX_IP_LEN + 1];
     int             server_port;
     PRT_CON_TYPE    prt_con_type;
+    READER_MODE     reader_mode;
     char            fn_passwd[MAX_PASSWD_LEN + 1];
 
     OP_STATE        state;
@@ -2563,6 +2576,7 @@ int load_server_set(EDC_CTX *p_ctx, const char *ini_file)
     //char edc_id[kMaxEDCIDLen + 1];
     int port;
     int com;
+    int reader_mode;
     char *end_ptr;
 
     if (!ini_file)
@@ -2591,6 +2605,18 @@ int load_server_set(EDC_CTX *p_ctx, const char *ini_file)
             return kFailure;
         }
         p_ctx->prt_con_type = com;
+
+        fgets(line, kMaxReadLineLen, fpSetting);
+        FileGetValue(line, num_tmp, &len);
+        reader_mode = strtol(num_tmp, &end_ptr, 10);
+        if (*end_ptr != '\0' || !( reader_mode == HID || reader_mode == MIFARE))
+        {
+            log1(ERROR, kModName, __func__,
+                "Reader setup in INI file error: %s",
+                ini_file);
+            return kFailure;
+        }
+        p_ctx->reader_mode = reader_mode;
 
         fgets(line, kMaxReadLineLen, fpSetting);
         FileGetValue(line, p_ctx->server_ip, &len);
@@ -3575,8 +3601,8 @@ int quota_state(EDC_CTX* p_ctx)
         usage_modified_flag = (!usage_same_as(&(ptr_counter.photocopy), &continue_photocopy_usage)
                           || !usage_same_as(&(ptr_counter.print), &continue_print_usage));
 
-        log3(DEBUG, kModName, __func__, "Status flag: %8X, Modified flag: %d, u8_status: %8X",
-                status_action_flag, usage_modified_flag, ptr_counter.u8_work_status);
+        //log3(DEBUG, kModName, __func__, "Status flag: %8X, Modified flag: %d, u8_status: %8X",
+        //        status_action_flag, usage_modified_flag, ptr_counter.u8_work_status);
         if (status_action_flag || usage_modified_flag)
         {
             // Action
@@ -4170,7 +4196,9 @@ int passwd_state(EDC_CTX* p_ctx)
 int setup_state(EDC_CTX* p_ctx)
 {
     int new_prt_con_type;
+    int new_reader_mode;
     char new_prt_con_type_str[kMaxConnectTypeLen + 1];
+    char new_reader_mode_str[kMaxReaderModeTypeLen + 1];
     char new_edc_id[kMaxEDCIDLen + 1];
     char new_edc_ip[kMaxIPLen + 1];
     char new_submask[kMaxIPLen + 1];
@@ -4222,6 +4250,8 @@ int setup_state(EDC_CTX* p_ctx)
 
     snprintf(new_prt_con_type_str, kMaxConnectTypeLen + 1, "%d", p_ctx->prt_con_type);
     new_prt_con_type = p_ctx->prt_con_type;
+    snprintf(new_reader_mode_str, kMaxReaderModeTypeLen + 1, "%d", p_ctx->reader_mode);
+    new_reader_mode = p_ctx->reader_mode;
     strncpy(new_edc_id, p_ctx->edc_id, kMaxEDCIDLen + 1);
     strncpy(new_edc_ip, p_ctx->edc_ip, kMaxIPLen + 1);
     strncpy(new_submask, p_ctx->submask, kMaxIPLen + 1);
@@ -4244,13 +4274,34 @@ int setup_state(EDC_CTX* p_ctx)
                 {
                     state_ret = get_str_from_keypad(p_ctx, STR_EMPTY,
                             new_prt_con_type_str, kMaxConnectTypeLen + 1, 1);
-                    //fprintf(stderr, "ret: %d, value: %s\n", state_ret, new_prt_con_type_str);
                     if (state_ret != kFailure)
                     {
                         new_prt_con_type = (int)strtol(new_prt_con_type_str, &end_ptr, 10);
                         if (*end_ptr != '\0'
                                 || new_prt_con_type < kConnectTypeMin
                                 || new_prt_con_type > kConnectTypeMax)
+                        {
+                            show_line(p_ctx, 3, STR_SETUP_ERROR);
+                            buzzer((kMicroPerSecond / 10) * 1);
+                            usleep(kMicroPerSecond / 2);
+                            continue;
+                        }
+                        break;
+                    }
+                }
+                break;
+            case SET_READER_TYPE:
+                show_line(p_ctx, 0, STR_SETUP_READER_TYPE);
+                show_line(p_ctx, 3, STR_EMPTY);
+                while (kTrue)
+                {
+                    state_ret = get_str_from_keypad(p_ctx, STR_EMPTY,
+                            new_reader_mode_str, kMaxReaderModeTypeLen + 1, 1);
+                    if (state_ret != kFailure)
+                    {
+                        new_reader_mode = (int)strtol(new_reader_mode_str, &end_ptr, 10);
+                        log1(INFO, kModName, __func__, "new_reader_mode: %d", new_reader_mode);
+                        if (*end_ptr != '\0')
                         {
                             show_line(p_ctx, 3, STR_SETUP_ERROR);
                             buzzer((kMicroPerSecond / 10) * 1);
@@ -4448,6 +4499,7 @@ int setup_state(EDC_CTX* p_ctx)
                 strncpy(p_ctx->fn_passwd, new_fn_passwd, kMaxPasswdLen+1);
                 p_ctx->server_port = new_server_port;
                 p_ctx->prt_con_type = new_prt_con_type;
+                p_ctx->reader_mode = new_reader_mode;
 
                 // Write back to file
                 if(!(fp_setup = fopen(kServerIni, "w")))
@@ -4456,8 +4508,9 @@ int setup_state(EDC_CTX* p_ctx)
                             "Can not open %s.", kServerIni);
                     return kFailure;
                 }
-                ret = fprintf(fp_setup, "%s=%d\n%s=%s\n%s=%d\n%s=%s\n%s=%s\n",
+                ret = fprintf(fp_setup, "%s=%d\n%s=%d\n%s=%s\n%s=%d\n%s=%s\n%s=%s\n",
                         kSetupStrPRTCON, new_prt_con_type,
+                        kSetupStrReaderMode, new_reader_mode,
                         kSetupStrServerIP, new_server_ip,
                         kSetupStrServerPort, new_server_port,
                         kSetupStrEDCID, new_edc_id,
@@ -5003,7 +5056,6 @@ int read_rfid(EDC_CTX *p_ctx)
         return kFailure;
     }
 
-    /*
     //CLD test card number
     unsigned char temp[kMaxReadRFIDLen];
     unsigned char *t;
@@ -5018,10 +5070,10 @@ int read_rfid(EDC_CTX *p_ctx)
     *t = '\0';
     log1(DEBUG, kModName, __func__, "Read data from RFID, len: %d", len);
     // A4 01 FD 12 1C 00 F8 FF 12 E0 90 00
-    */
+    // 00 00 00 00 00 00 00 00 00 00 00 0A 42 40 64 B4
 
-    card_sn = pcData[kIdxRFIDCardHi] * 256 + pcData[kIdxRFIDCardLow] +
-                (((pcData[kIdxRFIDOffset] & 0x01) == 0x01)?0:kRFIDOffset);
+    card_sn = (pcData[kIdxRFIDCardHi] * 256 + pcData[kIdxRFIDCardLow] +
+                (((pcData[kIdxRFIDOffset] & 0x01) == 0x01)?kRFIDOffset:0)) / 2;
 
     if (card_sn == 0)
     {
@@ -5886,7 +5938,6 @@ int init_log(EDC_CTX* p_ctx, LOG_LEVEL level)
     if (dup2(g_log_pipe[1], STDERR_FILENO) == kFailure)
     {
         log0(ERROR, kModName, __func__, "Can not duplicate stderr");
-        return kFailure;
     }
 
     log0(INFO, kModName, __func__, "Make sure baklog folder is exist");
@@ -6028,7 +6079,6 @@ void log_thr_func(void)
                 return;
             }
         }
-        
 
         FD_ZERO(&log_fds);
         FD_SET(g_log_pipe[0], &log_fds);
