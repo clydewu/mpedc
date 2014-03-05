@@ -7,16 +7,22 @@ ifconfig lo 127.0.0.1
 route add -net 127.0.0.0 netmask 255.255.255.0 lo
 mount /mnt/mmc
 /mnt/disk/cron
-/home/EDC/edc_net_setup.sh /home/EDC/edc_network.conf
-
-if [ $? != 0 ]; then
-	ifconfig eth0 192.168.7.251 netmask 255.255.255.0
-	route add default gw 192.168.7.254
-fi
 
 cat /etc/motd
 ln -s /home/work/gconv/ /lib/
-cd /home/EDC/
-./edc_show_ip.sh ./edc_network.conf
-sleep 5
-./EDCClient &
+
+EDC_DIR=/home/EDC/
+if [ -d $EDC_DIR ]; then
+    cd $EDC_DIR
+    ./edc_net_setup.sh ./edc_network.conf
+    if [ $? != 0 ]; then
+            ifconfig eth0 192.168.1.245 netmask 255.255.255.0
+            route add default gw 192.168.1.254
+    fi
+    ./set_time.sh ./edc_setup.conf
+    ./edc_show_ip.sh ./edc_network.conf
+    sleep 5
+    ./EDCClient &
+else
+    echo 'EDCClient directory is not exist!'
+fi

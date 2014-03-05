@@ -11,13 +11,10 @@ if [ ! -d /mnt/disk ];then
     exit -1
 fi
 mv cron /mnt/disk
-chown root@root /mnt/disk/cron
+chown root:root /mnt/disk/cron
 chmod 4755 /mnt/disk/cron
-
-if [ ! -d /etc/cron.d/ ]; then
-    mkdir -p /etc/cron.d/
-fi
-mv EDCClient.cron /etc/cron.d/
+mv EDCClient.cron /etc/crontab
+chmod 644 /etc/crontab
 
 # Set localtime file
 mv localtime /etc

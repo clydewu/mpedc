@@ -526,6 +526,7 @@ void FileGetValue(char *buf, char *u8Data, int *i32Len);
 int load_com_setting(COM_CTX*, const char*);
 int setport(COM_CTX*);
 int OpenDev(char*);
+int serFlushCOM(COM_CTX *p_ctx);
 
 // State Function
 int idle_state(EDC_CTX*);
@@ -1653,6 +1654,10 @@ int load_emp_delta(EMP_DATA *emp_list, int* list_size, char *delta, const int le
             log2(DEBUG, kModName, __func__, "Fetch only_mono failure: %s(%d)", cur_ptr, strlen(cur_ptr));
             goto LOAD_EMP_DELTA_FAIL;
         }
+        //NOTE
+        // In server, it is 'isColorPrint'
+        // But 'only_mono' in client.
+        // It need revert when loading
         load_emp.only_mono = (int)((*temp_buf == '0')?kTrue:kFalse);
 
         cur_ptr += (get_len + 1);
@@ -3045,6 +3050,8 @@ int idle_state(EDC_CTX *p_ctx)
         return kFailure;
     }
 
+    serFlushCOM(&p_ctx->com_ctx);
+
     // Initial user data
     memset(&p_ctx->curr_card_sn, 0, kMaxCardSNLen);
     memset(&p_ctx->project_code, 0, kMaxProjectCodeLen + 1);
@@ -3484,6 +3491,7 @@ int quota_state(EDC_CTX* p_ctx)
     curr_emp = &(p_ctx->emp_list[p_ctx->curr_emp_idx]);
     curr_edc = &(p_ctx->edc_list[0]);
     curr_quota = curr_emp->curr_quota;
+    log1(DEBUG, kModName, __func__, "Only Mono: %d", curr_emp->only_mono);
 
     init_printertype(&(ptr_counter.photocopy));
     init_printertype(&(ptr_counter.print));
@@ -5056,6 +5064,7 @@ int read_rfid(EDC_CTX *p_ctx)
         return kFailure;
     }
 
+
     //CLD test card number
     unsigned char temp[kMaxReadRFIDLen];
     unsigned char *t;
@@ -5334,7 +5343,9 @@ int load_employee_list(EMP_DATA *p_list, const int list_size,
         {
             goto LOAD_EMP_FAIL_LINE;
         }
-        list_ptr->only_mono = (int)((*temp == '0')?kTrue:kFalse);
+        //CLD
+        //list_ptr->only_mono = (int)((*temp == '0')?kTrue:kFalse);
+        list_ptr->only_mono = (int)((*temp == '1')?kTrue:kFalse);
 
         list_ptr++;
         line_count++;
@@ -5881,6 +5892,23 @@ int serReadCOM(COM_CTX *p_ctx, void *pData, const int ci32Len)
 
     return i;
 
+}
+
+int serFlushCOM(COM_CTX *p_ctx)
+{
+    int i;
+    char buf[32];
+    if (!p_ctx)
+    {
+        log0(ERROR, kModName, __func__, "Parameter Fail!");
+        return kFailure;
+    }
+
+    while ((i = read(p_ctx->com_handle, buf, 32)) > 0 )
+    {
+    }
+
+    return kSuccess;
 }
 
 /*
