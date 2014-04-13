@@ -126,8 +126,11 @@ const char kServerIni[] = "./edc_setup.conf";
 const char kNetworkIni[] = "./edc_network.conf";
 const char kSetupIpCmd[] = "./edc_net_setup.sh ./edc_network.conf";
 const char kTempFileSuffix[] = ".tmp";
-const char kLogFolder[] = "./log/";
+const char kLogFolder[] = "/mnt/mmc/EDClog/";
 const char kLogSuffix[] = "log";
+const char kUpdateFilePath[] = "/home/EDCUpdate/";
+const char kUpdateFilePrefix[] = "EDCUpdate";
+const char kUpdateSuccessFileSuffix[] = ".ok";
 const int kMaxEmpListSize = MAX_EMP_LIST_SIZE;
 const int kMaxEDCListSize = MAX_EDC_LIST_SIZE;
 const int kMaxProjListSize = MAX_PROJ_LIST_SIZE;
@@ -137,6 +140,8 @@ const char kInitCmd[] = "./ptr_init";
 const char kInitArgInit[] = "init";
 const char kInitArgStop[] = "stop";
 
+const char kMoveFileCmd[] = "mv";
+
 const int kMaxDepartmentNameLen = MAX_DEP_NAME_LEN;
 const int kMaxDepartmentNOLen = MAX_DEP_NO_LEN;
 const int kMaxCardSNLen = MAX_CARD_SN_LEN;
@@ -144,6 +149,7 @@ const int kMaxEDCIDLen = MAX_EDC_ID_LEN;
 const int kMaxProjectCodeLen = MAX_PROJECT_LEN;
 const int kMaxEmpNOLen = MAX_EMP_NO_LEN;
 
+const int kTerminated = 1;
 const int kSuccess = 0;
 const int kFailure = -1;
 const int kTrue = 1;
@@ -176,7 +182,7 @@ const int kASCII_zero = 48;
 const int kASCII_nine = 57;
 const int kMaxFailLimit = 10;
 const int kMaxLogLen = 8192;
-const int kMaxLogFileSize = 1024 * 1024;
+const int kMaxLogFileSize = 1024 * 1024; //5M
 const char kYmdHMS[] = "%.4d-%.2d-%.2d %.2d:%.2d:%.2d";
 const char kYmdHMS_NS[] = "%.4d%.2d%.2d%.2d%.2d%.2d";
 
@@ -184,6 +190,8 @@ const float kWaitSecScanKey = 0.2;
 const float kWaitSecReadComPort = 0.1;
 const float kWaitSecDoubleBuzzer = 0.2;
 const float kWaitSecStopPtrCount = 0.2;
+const float kWaitSecSetBacklight = 0.1;
+const float kWaitDeviceFail = 0.5;
 const float kBuzzerShort = 0.1;
 const float kBuzzerMedium = 0.3;
 const float kBuzzerLong = 0.5;
@@ -194,7 +202,6 @@ const int kMaxPrtPage = 11;
 const int kWorkStatusWork = 0x00;
 const int kWorkStatusIdle = 0x01;
 
-
 const char kSetupStrServerIP[] = "server";
 const char kSetupStrServerPort[] = "port";
 const char kSetupStrEDCID[] = "id";
@@ -204,7 +211,6 @@ const char kSetupStrReaderMode[] = "reader";
 const char kSetupSelfIP[] = "ip";
 const char kSetupSubmask[] = "submask";
 const char kSetupGateway[] = "gateway";
-
 
 const char kDefINIFile[] = "./comtest.ini";
 const int kMaxCOMPortLen = MAX_COM_PORT_LEN;
@@ -782,6 +788,7 @@ void sync_list_thr_func(void* ctx)
 int get_press_key(EDC_CTX* p_ctx, unsigned char* key)
 {
     int ret;
+    int failure_count = 0;
 
     if (!p_ctx || !key)
     {
@@ -789,24 +796,42 @@ int get_press_key(EDC_CTX* p_ctx, unsigned char* key)
         return kFailure;
     }
 
-    // By experience, Sleep a while to keep it success
-    usleep(kMicroPerSecond * kWaitSecScanKey);
 
-    if (pthread_mutex_lock(&p_ctx->lkp_ctx_mutex))
+    while (kTrue)
     {
-        log0(ERROR, kModName, __func__, "Lock lkp_ctx mutex failure!");
-        return kFailure;
+        // By experience, Sleep first will enhance it success
+        usleep(kMicroPerSecond * kWaitSecScanKey);
+
+        if (pthread_mutex_lock(&p_ctx->lkp_ctx_mutex))
+        {
+            log0(ERROR, kModName, __func__, "Lock lkp_ctx mutex failure!");
+            return kFailure;
+        }
+
+        ret = kpd_get_keypad(p_ctx->lkp_ctx, key);
+
+        if (pthread_mutex_unlock(&p_ctx->lkp_ctx_mutex))
+        {
+            log0(ERROR, kModName, __func__, "Unlock lkp_ctx mutex failure!");
+            return kFailure;
+        }
+
+        if (ret >= kSuccess)
+        {
+            break;
+        }
+
+        log1(ERROR, kModName, __func__,
+                "Can not get keypad: %d", ret);
+
+        if (++failure_count > kMaxFailLimit)
+        {
+            return kFailure;
+        }
     }
 
-    ret = kpd_get_keypad(p_ctx->lkp_ctx, key);
 
-    if (pthread_mutex_unlock(&p_ctx->lkp_ctx_mutex))
-    {
-        log0(ERROR, kModName, __func__, "Unlock lkp_ctx mutex failure!");
-        return kFailure;
-    }
-
-    return ret;
+    return kSuccess;
 }
 
 void sync_log_thr_func(void *ctx)
@@ -988,7 +1013,7 @@ int save_log_to_local(EDC_CTX *p_ctx, const char *log_tmp_file)
 
     if(!(fp_log = fopen(log_tmp_file, "a")))
     {
-        log0(ERROR, kModName, __func__, "Can not open log temp file.");
+        log1(ERROR, kModName, __func__, "Can not open log temp file: %s.", log_tmp_file);
         return kFailure;
     }
 
@@ -2081,6 +2106,7 @@ int save_edc_list(EDC_DATA *p_list, int list_size, const char *file_name, pthrea
     if (p_mutex && pthread_mutex_lock(p_mutex))
     {
         log0(ERROR, kModName, __func__, "Lock EDC mutex failure!");
+        fclose(fp_list);
         return kFailure;
     }
 
@@ -2301,6 +2327,7 @@ int save_proj_list(PROJ_DATA *p_list, int list_size, const char *file_name, pthr
     if (p_mutex && pthread_mutex_lock(p_mutex))
     {
         log0(ERROR, kModName, __func__, "Lock PROJ mutex failure!");
+        fclose(fp_list);
         return kFailure;
     }
 
@@ -2452,13 +2479,14 @@ int connect_server(EDC_CTX* p_ctx)
 
     if ((sock = socket(AF_INET, SOCK_STREAM, 0)) < 0)
     {
-        log0(ERROR, kModName, __func__, "Open socket error.");
+        log2(ERROR, kModName, __func__, "Open socket error, ret: %d, msg: %s", sock, strerror(errno));
         return kFailure;
     }
 
     if (set_nonblock(sock, kTrue) != kSuccess)
     {
-        log0(ERROR, kModName, __func__, "Set socket non-block error.");
+        log1(ERROR, kModName, __func__, "Set socket non-block error: %s.", strerror(errno));
+        close(sock);
         return kFailure;
     }
 
@@ -2469,6 +2497,7 @@ int connect_server(EDC_CTX* p_ctx)
             log2(ERROR, kModName, __func__, 
                 "Establish connect failure(%d): %s",
                 conn_ret, strerror(errno));
+            close(sock);
             return kFailure;
         }
         else
@@ -2487,11 +2516,13 @@ int connect_server(EDC_CTX* p_ctx)
                     log1(ERROR, kModName, __func__, 
                         "Connect failure: %s",
                         strerror(errno));
+                    close(sock);
                     return kFailure;
                 }
                 else if (sel_ret == 0)
                 {
                     log0(ERROR, kModName, __func__, "Connect timeout.");
+                    close(sock);
                     return kFailure;
                 }
                 else if (FD_ISSET(sock, &conn_fds))
@@ -2504,6 +2535,7 @@ int connect_server(EDC_CTX* p_ctx)
                         log2(ERROR, kModName, __func__, 
                             "Get sockopt failure (%d): %s",
                             errno, strerror(errno));
+                        close(sock);
                         return kFailure;
                     }
 
@@ -2514,6 +2546,7 @@ int connect_server(EDC_CTX* p_ctx)
 
                     log1(ERROR, kModName, __func__, 
                         "Connect failure, valopt: %d", valopt);
+                    close(sock);
                     return kFailure;
                 }
             }
@@ -2524,6 +2557,7 @@ int connect_server(EDC_CTX* p_ctx)
     if (set_nonblock(sock, kFalse) != kSuccess)
     {
         log0(ERROR, kModName, __func__, "Set socket to block mode failure.");
+        close(sock);
         return kFailure;
     }
 
@@ -2607,6 +2641,7 @@ int load_server_set(EDC_CTX *p_ctx, const char *ini_file)
             log1(ERROR, kModName, __func__,
                 "COM setup in INI file error: %s",
                 ini_file);
+            fclose(fpSetting);
             return kFailure;
         }
         p_ctx->prt_con_type = com;
@@ -2619,6 +2654,7 @@ int load_server_set(EDC_CTX *p_ctx, const char *ini_file)
             log1(ERROR, kModName, __func__,
                 "Reader setup in INI file error: %s",
                 ini_file);
+            fclose(fpSetting);
             return kFailure;
         }
         p_ctx->reader_mode = reader_mode;
@@ -2632,6 +2668,7 @@ int load_server_set(EDC_CTX *p_ctx, const char *ini_file)
         if (*end_ptr != '\0')
         {
             log0(ERROR, kModName, __func__, "Port setup in INI file error!");
+            fclose(fpSetting);
             return kFailure;
         }
         p_ctx->server_port = port;
@@ -3020,6 +3057,8 @@ int idle_state(EDC_CTX *p_ctx)
     int backlight_flag;
     struct tm time_info;
 
+    char update_check_file[kMaxPathLen];
+
     if (!p_ctx)
     {
         log0(ERROR, kModName, __func__, "Parameter Fail!");
@@ -3067,6 +3106,17 @@ int idle_state(EDC_CTX *p_ctx)
     show_datetime(p_ctx, &time_info);
     show_line(p_ctx, 1, (cur_edc_num==0)?STR_DISABLE:STR_PLEASE_CARD);
     show_line(p_ctx, 3, cur_connected?STR_ONLINE:STR_OFFLINE);
+
+    snprintf(update_check_file, kMaxPathLen, "%s/%s%s",
+                kUpdateFilePath, kUpdateFilePrefix, kUpdateSuccessFileSuffix);
+
+    log1(DEBUG, kModName, __func__, "Check update ok file: %s", update_check_file); 
+    if (access(update_check_file, F_OK) == kSuccess)
+    {
+        log0(INFO, kModName, __func__, "Find Update File! EDCClient will terminate!");
+        quit(p_ctx);
+        return kTerminated;
+    }
 
     while (kTrue)
     {
@@ -3549,8 +3599,8 @@ int quota_state(EDC_CTX* p_ctx)
     }
     else
     {
-        log2(DEBUG, kModName, __func__, "Set COM%d, only mono:%d",
-                    p_ctx->prt_con_type, curr_emp->only_mono);
+        //log2(DEBUG, kModName, __func__, "Set COM%d, only mono:%d",
+        //            p_ctx->prt_con_type, curr_emp->only_mono);
         if (ptr_select(p_ctx->prt_con_type, curr_emp->only_mono) < kSuccess)
         {
             log2(INFO, kModName, __func__,
@@ -3689,11 +3739,11 @@ int quota_state(EDC_CTX* p_ctx)
         usleep(kMicroPerSecond / 2);
     }
 
-    log0(ERROR, kModName, __func__, "----- print count -----");
+    log0(INFO, kModName, __func__, "----- print count -----");
     print_printertype(&(ptr_counter.print));
-    log0(ERROR, kModName, __func__, "----- copy count -----");
+    log0(INFO, kModName, __func__, "----- copy count -----");
     print_printertype(&(ptr_counter.photocopy));
-    log0(ERROR, kModName, __func__, "----- scan count -----");
+    log0(INFO, kModName, __func__, "----- scan count -----");
     print_printertype(&(ptr_counter.scan));
 
     if (!usage_empty(&ptr_counter.photocopy)
@@ -4865,10 +4915,10 @@ int set_led(EDC_CTX* p_ctx, unsigned int conf)
                     result = kFailure;
                     break;
                 }
+                usleep(kMicroPerSecond * kWaitDeviceFail);
                 continue;
             }
 
-            usleep(kMicroPerSecond / 20);
             break;
         }
     }
@@ -4887,7 +4937,7 @@ int set_backlight(EDC_CTX* p_ctx, unsigned char u8_type)
     int ret;
     int failure_count = 0;
 
-    usleep(kMicroPerSecond / 10);
+    usleep(kMicroPerSecond * kWaitSecSetBacklight);
     while (kTrue)
     {
         if (pthread_mutex_lock(&p_ctx->lkp_ctx_mutex))
@@ -4911,10 +4961,12 @@ int set_backlight(EDC_CTX* p_ctx, unsigned char u8_type)
 
         log1(ERROR, kModName, __func__,
                 "Can not set backlight: %d", u8_type);
+
         if (++failure_count > kMaxFailLimit)
         {
             return kFailure;
         }
+        usleep(kMicroPerSecond * kWaitDeviceFail);
     }
 
     return kSuccess;
@@ -4995,6 +5047,7 @@ int show_line(EDC_CTX *p_ctx, int line, const char *string)
                 result = kFailure;
                 break;
             }
+            usleep(kMicroPerSecond * kWaitDeviceFail);
             continue;
         }
 
@@ -5008,6 +5061,7 @@ int show_line(EDC_CTX *p_ctx, int line, const char *string)
                 result = kFailure;
                 break;
             }
+            usleep(kMicroPerSecond * kWaitDeviceFail);
             continue;
         }
 
@@ -5021,6 +5075,7 @@ int show_line(EDC_CTX *p_ctx, int line, const char *string)
                 result = kFailure;
                 break;
             }
+            usleep(kMicroPerSecond * kWaitDeviceFail);
             continue;
         }
 
@@ -5059,8 +5114,8 @@ int read_rfid(EDC_CTX *p_ctx)
     if (len < kMaxCardReadLen)
     {
 
-        //log1(DEBUG, kModName, __func__,
-        //        "Read string from RFID too short, length: %d", len);
+        log1(DEBUG, kModName, __func__,
+                "Read string from RFID too short, length: %d", len);
         return kFailure;
     }
 
@@ -6057,6 +6112,8 @@ void log_thr_func(void)
     char baklog_path[kMaxPathLen + 1]; 
     char cur_date[kMaxYmdHMSLen + 1];
 
+    char move_cmd[kMaxCommandLen + 1];
+
     /*
     if (!ctx)
     {
@@ -6093,11 +6150,16 @@ void log_thr_func(void)
                     "%s%s%s.%s", kLogFolder, kModName, cur_date, kLogSuffix);
 
             close(g_log_fd);
+
+            snprintf(move_cmd, kMaxCommandLen + 1, "%s %s %s",
+                    kMoveFileCmd, log_path, baklog_path);
+
             log1(INFO, kModName, __func__, "Backup log file: %s", baklog_path);
-            if (rename(log_path, baklog_path) == kFailure)
+            if (system(move_cmd) == kFailure)
             {
                 log2(FATAL, kModName, __func__,
                         "Backup log file failure. %s -> %s", log_path, baklog_path);
+                return;
             }
 
             log1(INFO, kModName, __func__, "Reopen log file: %s", log_path);

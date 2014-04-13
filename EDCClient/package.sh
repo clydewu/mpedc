@@ -12,7 +12,7 @@ LIST_FILE="edc.list employee.list projects.list"
 CONF_DIR="conf/"
 CONF_FILE="comtest.ini edc_network.conf edc_setup.conf"
 SCRIPT_DIR="script/"
-SCRIPT_FILE="edc_net_setup.sh edc_show_ip.sh set_time.sh install.sh rc"
+SCRIPT_FILE="edc_net_setup.sh edc_show_ip.sh set_time.sh install.sh rc watchdog.sh"
 
 # !NOTE All files are placed in the same folder
 

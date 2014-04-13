@@ -1,8 +1,9 @@
 #!/bin/bash
 
-SCRIPT_FILE="edc_net_setup.sh edc_show_ip.sh set_time.sh install.sh rc"
+SCRIPT_FILE="edc_net_setup.sh edc_show_ip.sh set_time.sh install.sh rc watchdog.sh"
 MAIN_BIN="EDCClient show_screen ptr_init"
 
+chown root:root ./*
 chmod 775 $SCRIPT $MAIN_BIN
 
 # install cron
@@ -11,7 +12,6 @@ if [ ! -d /mnt/disk ];then
     exit -1
 fi
 mv cron /mnt/disk
-chown root:root /mnt/disk/cron
 chmod 4755 /mnt/disk/cron
 mv EDCClient.cron /etc/crontab
 chmod 644 /etc/crontab
@@ -23,3 +23,6 @@ mv localtime /etc
 mv /etc/rc /etc/rc.`date +%Y%m%d%H%M%S`.bak
 mv ./rc /etc/rc
 
+
+# Make Update folder
+mkdir -p /home/EDCUpdate
