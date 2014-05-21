@@ -14,8 +14,8 @@ GATEWAY=`grep ^gateway $NET_CONF | awk -F = '{print $2}'`
 #echo $SUBMASK
 #echo $GATEWAY
 
-ifconfig eth0 $IP netmask $SUBMASK
-route del default
-route add default gw $GATEWAY
+/sbin/ifconfig eth0 $IP netmask $SUBMASK
+/sbin/route del default
+/sbin/route add default gw $GATEWAY
 
 exit 0

@@ -118,6 +118,7 @@
 }                                                   \
 
 const char kModName[] = "EDCClient";
+const char kVersion[] = "1.1";
 const char kEmpListFile[] = "./employee.list";
 const char kEDCListFile[] = "./edc.list";
 const char kProjListFile[] = "./projects.list";
@@ -240,9 +241,12 @@ const char kSep = '|';
 const char kPoint = '.';
 const int kMaxIPLen = MAX_IP_LEN;
 const int kMaxPortLen = MAX_PORT_LEN;
+const int kMaxIPSection = 4;
+const int kMaxIPSectionLen = 3;
 const int kMaxSockTimeout = 10;
 const int kMaxConLenStrLen = 16;
 
+const int kUpdateIntervalSec = 30;
 const int kLCDBackLightTimeout = 5;
 const int kSyncListInterval = 180;
 const int kSyncLogInterval = 5;
@@ -254,6 +258,7 @@ const unsigned int kLEDRed = 2;
 const unsigned int kLEDYellow = 4;
 const unsigned int kLEDGreen = 8;
 
+const char kSyncVerCmd[] = "SYNC_VER";
 const char kSyncEmpCmd[] = "SYNC_EMP";
 const char kSyncEdcCmd[] = "SYNC_EDC";
 const char kSyncProjCmd[] = "SYNC_PROJ";
@@ -273,6 +278,7 @@ const int kMaxProjListBuf = (MAX_PROJ_LIST_SIZE * MAX_LIST_LEN);
 const char STR_EMPTY[] = "";
 const char STR_SPACE[] = " ";
 const char STR_PLEASE_CARD[] = "請靠卡使用";
+const char STR_INVALID_PROJECT_CODE[] = "專案代碼錯誤";
 const char STR_EMPOLYEE_ID[] = "員編:";
 const char STR_INVALID_CARD[] = "無效卡";
 const char STR_CONTACT_STAFF[] = "請洽管理人員";
@@ -306,6 +312,7 @@ const char STR_SETUP_INPUT_PASSWD[] = "輸入密碼";
 const char STR_DISABLE[] = "無法使用";
 const char STR_ONLINE[] = "On-Line";
 const char STR_OFFLINE[] = "Off-Line";
+const char STR_UPDATE[] = "更新中";
 
 
 typedef enum _log_level
@@ -560,7 +567,9 @@ int load_server_set(EDC_CTX*, const char*);
 int load_network_set(EDC_CTX*, const char*);
 int set_backlight(EDC_CTX* p_ctx, unsigned char u8_type);
 int show_quota_info(EDC_CTX *p_ctx, int quota, int gb, int gs, int go, int cb, int cs, int co);
-int trim_ipv4(char* ipv4, const int len);
+int trim_ipv4(char* tmp_ip, const int tmp_len, char* ipv4, const int len);
+int append_zero_ipv4(char* tmp_ip, const int tmp_len, char* ipv4, const int len);
+int str_left_padding(char* dest_str, int dest_len, char* src_str, int src_len, char ch);
 
 // List Utilities
 int sync_lists(EDC_CTX*);
@@ -694,9 +703,10 @@ int main(void)
         }
     }
 INIT_FAIL:
-    ret_code = kFailure;
-    if (show_line(&ctx, 1, STR_ERROR) != kSuccess)
+    ret_code = ret;
+    if (show_line(&ctx, 1, (ret == kTerminated)?STR_UPDATE:STR_ERROR) != kSuccess)
     {
+
         log0(ERROR, kModName, __func__, "Can not print error msg to screen.");
     }
 
@@ -1316,6 +1326,7 @@ int init(EDC_CTX *p_ctx)
     }
     else
     {
+
         log0(INFO, kModName, __func__, "Sync list from EDCAgent");
         if (sync_lists(p_ctx) != kSuccess)
         {
@@ -2463,6 +2474,9 @@ int connect_server(EDC_CTX* p_ctx)
     struct timeval timeout;
     fd_set conn_fds;
 
+    char edc_version[kMaxEDCLogLen + 1];
+    int send_len;
+
     if (!p_ctx)
     {
         log0(ERROR, kModName, __func__, "Parameter Fail!");
@@ -2564,6 +2578,15 @@ int connect_server(EDC_CTX* p_ctx)
     log0(INFO, kModName, __func__, "Connect to agent success.");
     p_ctx->server_fd = sock;
     p_ctx->connected = kTrue;
+
+    log0(INFO, kModName, __func__, "Sync version information");
+    send_len = snprintf(edc_version, kMaxEDCLogLen + 1, "%s\t%s\t%s\n",
+            kSyncVerCmd, kVersion, p_ctx->edc_id);
+    if (sock_write(p_ctx->server_fd, edc_version, send_len) != send_len)
+    {
+        log0(ERROR, kModName, __func__, "Sync EDC Version failure!");
+        return kFailure;
+    }
 
     return kSuccess;
 }
@@ -3057,6 +3080,7 @@ int idle_state(EDC_CTX *p_ctx)
     int backlight_flag;
     struct tm time_info;
 
+    int update_check_epoch;
     char update_check_file[kMaxPathLen];
 
     if (!p_ctx)
@@ -3107,16 +3131,9 @@ int idle_state(EDC_CTX *p_ctx)
     show_line(p_ctx, 1, (cur_edc_num==0)?STR_DISABLE:STR_PLEASE_CARD);
     show_line(p_ctx, 3, cur_connected?STR_ONLINE:STR_OFFLINE);
 
+    update_check_epoch = time(NULL);
     snprintf(update_check_file, kMaxPathLen, "%s/%s%s",
                 kUpdateFilePath, kUpdateFilePrefix, kUpdateSuccessFileSuffix);
-
-    log1(DEBUG, kModName, __func__, "Check update ok file: %s", update_check_file); 
-    if (access(update_check_file, F_OK) == kSuccess)
-    {
-        log0(INFO, kModName, __func__, "Find Update File! EDCClient will terminate!");
-        quit(p_ctx);
-        return kTerminated;
-    }
 
     while (kTrue)
     {
@@ -3178,6 +3195,18 @@ int idle_state(EDC_CTX *p_ctx)
             }
         }
 
+        if (time(NULL) - update_check_epoch > kUpdateIntervalSec)
+        {
+            log1(DEBUG, kModName, __func__, "Check update ok file: %s", update_check_file); 
+            if (access(update_check_file, F_OK) == kSuccess)
+            {
+                log0(INFO, kModName, __func__, "Find Update File! EDCClient will terminate!");
+                return kTerminated;
+            }
+            update_check_epoch = time(NULL);
+        }
+
+
         if (cur_edc_num != p_ctx->edc_num)
         {
             // edc_num is modified, re-draw line 1
@@ -3194,9 +3223,22 @@ int idle_state(EDC_CTX *p_ctx)
             {
                 if (is_valid_card(p_ctx))
                 {
-                    p_ctx->state = QUOTA;
-                    buzzer(kMicroPerSecond * kBuzzerShort);
-                    log1(INFO, kModName, __func__, "Valid Card: %s", p_ctx->curr_card_sn);
+                    if (p_ctx->project_code[0] == '\0'
+                            || strlen(p_ctx->project_code) == kMaxProjectCodeLen)
+                    {
+                        p_ctx->state = QUOTA;
+                        buzzer(kMicroPerSecond * kBuzzerShort);
+                        log1(INFO, kModName, __func__, "Valid Card: %s", p_ctx->curr_card_sn);
+                    }
+                    else
+                    {
+                        backlight_epoch = time(NULL);
+                        backlight_flag = kTrue;
+                        show_line(p_ctx, 1, STR_INVALID_PROJECT_CODE);
+                        buzzer(kMicroPerSecond * kBuzzerShort);
+                        usleep(kMicroPerSecond * kIdleSecInvalidCard);
+                        show_line(p_ctx, 1, (cur_edc_num==0)?STR_DISABLE:STR_PLEASE_CARD);
+                    }
                 }
                 else
                 {
@@ -3222,6 +3264,8 @@ int idle_state(EDC_CTX *p_ctx)
                 return kFailure;
             }
         }
+
+
     }
 
     return kSuccess;
@@ -4267,6 +4311,9 @@ int setup_state(EDC_CTX* p_ctx)
     int new_server_port;
     char *end_ptr;
 
+    char trimed_ip[kMaxIPLen  + 1];
+
+
     FILE *fp_setup;
     FILE *fp_network;
     int ret;
@@ -4311,10 +4358,31 @@ int setup_state(EDC_CTX* p_ctx)
     snprintf(new_reader_mode_str, kMaxReaderModeTypeLen + 1, "%d", p_ctx->reader_mode);
     new_reader_mode = p_ctx->reader_mode;
     strncpy(new_edc_id, p_ctx->edc_id, kMaxEDCIDLen + 1);
-    strncpy(new_edc_ip, p_ctx->edc_ip, kMaxIPLen + 1);
-    strncpy(new_submask, p_ctx->submask, kMaxIPLen + 1);
-    strncpy(new_gateway, p_ctx->gateway, kMaxIPLen + 1);
-    strncpy(new_server_ip, p_ctx->server_ip, kMaxIPLen + 1);
+
+    log0(DEBUG, kModName, __func__, "Append zero to edc_ip");
+    if (append_zero_ipv4(new_edc_ip, kMaxIPLen + 1, p_ctx->edc_ip, kMaxIPLen + 1) == kFailure)
+    {
+        log0(ERROR, kModName, __func__, "Append zero to ip failure.");
+        return kFailure;
+    }
+    log0(DEBUG, kModName, __func__, "Append zero to submask");
+    if (append_zero_ipv4(new_submask, kMaxIPLen + 1, p_ctx->submask, kMaxIPLen + 1) == kFailure)
+    {
+        log0(ERROR, kModName, __func__, "Append zero to ip failure.");
+        return kFailure;
+    }
+    log0(DEBUG, kModName, __func__, "Append zero to gateway");
+    if (append_zero_ipv4(new_gateway, kMaxIPLen + 1, p_ctx->gateway, kMaxIPLen + 1) == kFailure)
+    {
+        log0(ERROR, kModName, __func__, "Append zero to ip failure.");
+        return kFailure;
+    }
+    log0(DEBUG, kModName, __func__, "Append zero to server_ip");
+    if (append_zero_ipv4(new_server_ip, kMaxIPLen + 1, p_ctx->server_ip, kMaxIPLen + 1) == kFailure)
+    {
+        log0(ERROR, kModName, __func__, "Append zero to ip failure.");
+        return kFailure;
+    }
     snprintf(new_server_port_str, kMaxPortLen + 1, "%d", p_ctx->server_port);
     strncpy(new_fn_passwd, p_ctx->fn_passwd, kMaxPasswdLen + 1);
     new_server_port = p_ctx->server_port;
@@ -4386,7 +4454,8 @@ int setup_state(EDC_CTX* p_ctx)
                     //fprintf(stderr, "ret: %d, value: %s\n", state_ret, new_edc_ip);
                     if (state_ret != kFailure)
                     {
-                        if (trim_ipv4(new_edc_ip, kMaxIPLen + 1) == kFailure)
+                        trim_ipv4(trimed_ip, kMaxIPLen + 1, new_edc_ip, kMaxIPLen + 1);
+                        if ( inet_addr(trimed_ip) == kFailure)
                         {
                             show_line(p_ctx, 3, STR_SETUP_ERROR);
                             buzzer((kMicroPerSecond / 10) * 1);
@@ -4407,7 +4476,8 @@ int setup_state(EDC_CTX* p_ctx)
                     //fprintf(stderr, "ret: %d, value: %s\n", state_ret, new_submask);
                     if (state_ret != kFailure)
                     {
-                        if (trim_ipv4(new_edc_ip, kMaxIPLen + 1) == kFailure)
+                        trim_ipv4(trimed_ip, kMaxIPLen + 1, new_submask, kMaxIPLen + 1);
+                        if ( inet_addr(trimed_ip) == kFailure)
                         {
                             show_line(p_ctx, 3, STR_SETUP_ERROR);
                             buzzer((kMicroPerSecond / 10) * 1);
@@ -4428,7 +4498,8 @@ int setup_state(EDC_CTX* p_ctx)
                     //fprintf(stderr, "ret: %d, value: %s\n", state_ret, new_gateway);
                     if (state_ret != kFailure)
                     {
-                        if (trim_ipv4(new_gateway, kMaxIPLen + 1) == kFailure)
+                        trim_ipv4(trimed_ip, kMaxIPLen + 1, new_gateway, kMaxIPLen + 1);
+                        if ( inet_addr(trimed_ip) == kFailure)
                         {
                             show_line(p_ctx, 3, STR_SETUP_ERROR);
                             buzzer((kMicroPerSecond / 10) * 1);
@@ -4449,7 +4520,8 @@ int setup_state(EDC_CTX* p_ctx)
                     //fprintf(stderr, "ret: %d, value: %s\n", state_ret, new_server_ip);
                     if (state_ret != kFailure)
                     {
-                        if (trim_ipv4(new_server_ip, kMaxIPLen + 1) == kFailure)
+                        trim_ipv4(trimed_ip, kMaxIPLen + 1, new_server_ip, kMaxIPLen + 1);
+                        if ( inet_addr(trimed_ip) == kFailure)
                         {
                             show_line(p_ctx, 3, STR_SETUP_ERROR);
                             buzzer((kMicroPerSecond / 10) * 1);
@@ -4550,10 +4622,10 @@ int setup_state(EDC_CTX* p_ctx)
                 log1(INFO, kModName, __func__,
                         "Write to ini: %s", kServerIni);
                 strncpy(p_ctx->edc_id, new_edc_id, kMaxEDCIDLen+1);
-                strncpy(p_ctx->edc_ip, new_edc_ip, kMaxIPLen+1);
-                strncpy(p_ctx->submask, new_submask, kMaxIPLen+1);
-                strncpy(p_ctx->gateway, new_gateway, kMaxIPLen+1);
-                strncpy(p_ctx->server_ip, new_server_ip, kMaxIPLen+1);
+                trim_ipv4(p_ctx->edc_ip, kMaxIPLen + 1, new_edc_ip, kMaxIPLen + 1);
+                trim_ipv4(p_ctx->submask, kMaxIPLen + 1, new_submask, kMaxIPLen + 1);
+                trim_ipv4(p_ctx->gateway, kMaxIPLen + 1, new_gateway, kMaxIPLen + 1);
+                trim_ipv4(p_ctx->server_ip, kMaxIPLen + 1, new_server_ip, kMaxIPLen + 1);
                 strncpy(p_ctx->fn_passwd, new_fn_passwd, kMaxPasswdLen+1);
                 p_ctx->server_port = new_server_port;
                 p_ctx->prt_con_type = new_prt_con_type;
@@ -5114,8 +5186,8 @@ int read_rfid(EDC_CTX *p_ctx)
     if (len < kMaxCardReadLen)
     {
 
-        log1(DEBUG, kModName, __func__,
-                "Read string from RFID too short, length: %d", len);
+        //log1(DEBUG, kModName, __func__,
+        //        "Read string from RFID too short, length: %d", len);
         return kFailure;
     }
 
@@ -6199,12 +6271,18 @@ void log_thr_func(void)
 }
 
 
-int trim_ipv4(char* ipv4, const int len)
+int trim_ipv4(char* tmp_ip, const int tmp_len, char* ipv4, const int len)
 {
-    char tmp_ip[MAX_IP_LEN + 1] = {0};
+    //char tmp_ip[MAX_IP_LEN + 1] = {0};
     char *ptr;
     char *new_ptr;
-    int section_flag = kTrue;
+    char *dot;
+    char curr_section[kMaxIPSectionLen + 1];
+    char *tol_end;
+    int int_section = 0;
+    int section = 0;
+    int section_len = 0;
+    int section_append_len = 0;
 
     if (!ipv4)
     {
@@ -6212,46 +6290,112 @@ int trim_ipv4(char* ipv4, const int len)
         return kFailure;
     }
 
-    if (len > kMaxIPLen + 1)
+    ptr = ipv4;
+    new_ptr = tmp_ip;
+    memset(tmp_ip, 0, tmp_len);
+    section = 0;
+    while (section < kMaxIPSection)
+    {
+        memset(curr_section, '\0', kMaxIPSectionLen + 1);
+        dot = strchr(ptr, kPoint);
+        section_len = (!dot) ? (ipv4 + strlen(ipv4)) - ptr : dot - ptr;
+        if (section_len > kMaxIPSectionLen)
+        {
+            log0(ERROR, kModName, __func__, "Buffer too small");
+            return kFailure;
+        }
+        strncpy(curr_section, ptr, section_len);
+        int_section = (int)strtol(curr_section, &tol_end, 10);
+        if (*tol_end != '\0')
+        {
+            log1(ERROR, kModName, __func__, "IP section is not integer: %s", curr_section);
+            return kFailure;
+        }
+        section_append_len = snprintf(new_ptr, kMaxIPSectionLen + 2, (section == kMaxIPSection - 1) ? "%d" : "%d.", int_section);
+        ptr = dot + 1;
+        new_ptr += section_append_len;
+        section += 1;
+    }
+
+    return kSuccess;
+}
+
+
+int append_zero_ipv4(char* tmp_ip, const int tmp_len, char* ipv4, const int len)
+{
+    //char tmp_ip[MAX_IP_LEN + 1] = {0};
+    char sections[kMaxIPSection][kMaxIPSectionLen + 1];
+    char tmp_section[kMaxIPSectionLen + 1];
+    int section_len = 0;
+    char *ptr;
+    char *new_ptr;
+    int section = 0;
+    char *dot;
+
+    if (!ipv4)
+    {
+        log0(ERROR, kModName, __func__, "Paramater failure");
+        return kFailure;
+    }
+
+    if (len > tmp_len)
     {
         log0(ERROR, kModName, __func__, "Buffer too small");
         return kFailure;
     }
 
     ptr = ipv4;
-    memset(tmp_ip, 0, kMaxIPLen + 1);
-    new_ptr = tmp_ip;
-
-    while (ptr < ipv4 + len -1)
+    memset(sections, 0, kMaxIPSection * (kMaxIPSectionLen + 1));
+    while (section < kMaxIPSection)
     {
-        if (section_flag && *ptr == '0')
+        dot = strchr(ptr, kPoint);
+        section_len = (!dot) ? (ipv4 + strlen(ipv4)) - ptr : dot - ptr;
+        if (section_len > kMaxIPSectionLen)
         {
-            ptr++;
-            continue;
+            log0(ERROR, kModName, __func__, "Buffer too small");
+            return kFailure;
         }
-
-        if (*ptr == kPoint)
-        {
-            if (section_flag == kTrue)
-            {
-                *new_ptr++ = '0';
-            }
-            section_flag = kTrue;
-        }
-        else
-        {
-            section_flag = kFalse;
-        }
-
-        *new_ptr++ = *ptr;
-        ptr++;
+        strncpy(sections[section], ptr, section_len);
+        ptr = dot + 1;
+        section += 1;
     }
 
-    strncpy(ipv4, tmp_ip, len);
-    if (inet_addr(tmp_ip) == kFailure)
+    memset(tmp_ip, 0, kMaxIPLen + 1);
+    new_ptr = tmp_ip;
+    section = 0;
+    while (section < kMaxIPSection)
     {
+        str_left_padding(tmp_section, kMaxIPSectionLen + 1, sections[section], kMaxIPSectionLen + 1, '0');
+        // Plus 2, including 'dot' and null-end
+        snprintf(new_ptr, kMaxIPSectionLen + 2, (section == kMaxIPSection - 1) ? "%s" : "%s.", tmp_section);
+        new_ptr += kMaxIPSectionLen + 1;
+        section++;
+    }
+
+    //strncpy(ipv4, tmp_ip, len);
+    return kSuccess;
+}
+
+
+int str_left_padding(char* dest_str, int dest_len, char* src_str, int src_len, char ch)
+{
+    int str_len;
+    if (!src_str || !dest_len)
+    {
+        log0(ERROR, kModName, __func__, "Paramater failure");
         return kFailure;
     }
 
+    if (src_len > dest_len)
+    {
+        log0(ERROR, kModName, __func__, "Buffer too small");
+        return kFailure;
+    }
+
+    memset(dest_str, ch, dest_len - 1);
+    dest_str[dest_len - 1] = '\0';
+    str_len = strlen(src_str);
+    strncpy(dest_str + (dest_len - str_len) - 1, src_str, str_len);
     return kSuccess;
 }
+

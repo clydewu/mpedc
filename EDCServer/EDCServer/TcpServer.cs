@@ -30,6 +30,7 @@ namespace EDCServer
             this.port = config.port;
         }
 
+
         public void Start()
         {
             try
@@ -46,6 +47,7 @@ namespace EDCServer
                 Application.Exit();
             }
         }
+
 
         public void Close()
         {       
@@ -66,6 +68,7 @@ namespace EDCServer
                 this.listenThread.Abort();
             }
         }
+
 
         private void ListenForClients()
         {
@@ -95,6 +98,7 @@ namespace EDCServer
 
             }
         }
+
 
         private void HandleClientComm(object client)
         {
@@ -181,6 +185,9 @@ namespace EDCServer
 
                         switch (cmd)
                         {
+                            case C.kSyncVerCmd:
+                                update_edc_version(cmd_tokens);
+                                break;
                             case C.kSyncEmpCmd:
                                 send_str = get_employee_list(cmd_tokens);
                                 send_buf = encoder.GetBytes(send_str);
@@ -217,7 +224,7 @@ namespace EDCServer
                                 System.Diagnostics.Debug.WriteLine(send_str);
                                 //TODO write error check
                                 clientStream.Write(send_buf, 0, send_buf.Length);
-                                clientStream.Flush();
+                                   clientStream.Flush();
                                 break;
                             case C.kSyncEDCDeltaCmd:
                                 break;
@@ -268,6 +275,7 @@ namespace EDCServer
             EventLog.WriteEntry("EDCAgent", "Client thread terminated", EventLogEntryType.Information);
         }
 
+
         private string get_emp_delta(string[] plist)
         {
             StringBuilder emp_list = new StringBuilder();
@@ -306,6 +314,7 @@ namespace EDCServer
             return emp_list.ToString();
         }
 
+
         private string get_proj_delta(string[] plist)
         {
             StringBuilder proj_list = new StringBuilder();
@@ -330,6 +339,7 @@ namespace EDCServer
             return proj_list.ToString();
         }
 
+
         private void emp_delta_ok(string[] plist)
         {
             SqlCommand sql_cmd;
@@ -340,6 +350,7 @@ namespace EDCServer
             sql_cmd.Parameters.Add("@EDCNO", SqlDbType.VarChar, 50).Value = plist[1];
             sql_cmd.ExecuteNonQuery();
         }
+
 
         private void edc_delta_ok(string[] plist)
         {
@@ -356,6 +367,7 @@ namespace EDCServer
             */
         }
 
+
         private void proj_delta_ok(string[] plist)
         {
             SqlCommand sql_cmd;
@@ -366,6 +378,7 @@ namespace EDCServer
             sql_cmd.Parameters.Add("@EDCNO", SqlDbType.VarChar, 50).Value = plist[1];
             sql_cmd.ExecuteNonQuery();
         }
+
 
         private string get_employee_list(string[] plist)
         {
@@ -411,6 +424,7 @@ namespace EDCServer
             return emp_list.ToString();
         }
 
+
         private string get_proj_list(string[] plist)
         {
             StringBuilder proj_list = new StringBuilder();
@@ -430,6 +444,7 @@ namespace EDCServer
             proj_list.Insert(0, proj_list.Length.ToString() + "|");
             return proj_list.ToString();
         }
+
 
         private string get_edc_list(string[] plist)
         {
@@ -533,6 +548,28 @@ namespace EDCServer
             return edc_list.ToString();
         }
 
+
+        private void update_edc_version(string[] plist)
+        {
+            SqlCommand sql_update;
+            if (plist.Length < 3)
+            {
+                throw new Exception(string.Format("EDC version command is malform: '{0}'", string.Join(" ", plist)));
+            }
+
+            string edc_version = plist[1];
+            string edc_no = plist[2];
+
+            using (sql_update = new SqlCommand("UPDATE [dbo].[DataEDC] SET [EDCVer] = @edc_ver WHERE [EDCNO] = @edc_no", sqlConn))
+            {
+                sql_update.Parameters.AddWithValue("@edc_ver", edc_version);
+                sql_update.Parameters.AddWithValue("@edc_no", edc_no);
+                sql_update.CommandType = System.Data.CommandType.Text;
+                sql_update.ExecuteNonQuery();
+            }
+        }
+
+
         private int[] get_smaller_paper_size(string paper_type)
         {
             string[] tokens = paper_type.Split(';');
@@ -573,6 +610,7 @@ namespace EDCServer
 
             return smallest_paper_size;
         }
+
 
         private void sync_edc_log(string recv)
         {
@@ -651,6 +689,7 @@ namespace EDCServer
 
             //return true;
         }
+
 
         private EDCLOG parse_log(string log)
         {

@@ -6,6 +6,7 @@ namespace EDCServer
 {
     class C
     {
+        public const string kSyncVerCmd = "SYNC_VER";
         public const string kSyncEmpCmd = "SYNC_EMP";
         public const string kSyncEDCCmd = "SYNC_EDC";
         public const string kSyncProjCmd = "SYNC_PROJ";
@@ -18,6 +19,7 @@ namespace EDCServer
         public const string kSyncProjDeltaOkCmd = "SYNC_PROJ_DELTA_OK";
 
         public const string kFieldEDCID = "@edc_id";
+        public const string kFieldEDCVER = "@edc_ver";
         public const string kFieldEDCLog = "@edc_log";
 
         public const string kGrayBig = "GB";
