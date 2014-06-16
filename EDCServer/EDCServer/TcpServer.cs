@@ -16,7 +16,7 @@ namespace EDCServer
     {
         private TcpListener tcpListener;
         private Thread listenThread;
-        private SqlConnection sqlConn;
+        private string sqlConnStr;
         private List<TcpClient> connectClient;
         private int port;
         private Form1 serverfrm;
@@ -24,9 +24,9 @@ namespace EDCServer
         public TcpServer(Config config, Form1 frm)
         {
             this.connectClient = new List<TcpClient>();
-            this.sqlConn = new SqlConnection(System.String.Format("Data Source={0};User Id={2}; Password={3}; Initial Catalog={1}",
-                config.source, config.db, config.user, config.password));
-            this.serverfrm = frm;
+            this.sqlConnStr = String.Format("Data Source={0};User Id={2}; Password={3}; Initial Catalog={1}",
+                config.source, config.db, config.user, config.password);
+            this.serverfrm = frm;   
             this.port = config.port;
         }
 
@@ -35,7 +35,6 @@ namespace EDCServer
         {
             try
             {
-                this.sqlConn.Open();
                 this.tcpListener = new TcpListener(IPAddress.Any, port);
                 this.listenThread = new Thread(new ThreadStart(ListenForClients));
                 this.listenThread.Start();
@@ -56,11 +55,6 @@ namespace EDCServer
                 System.Diagnostics.Debug.WriteLine("Close connect" + client.GetHashCode());
                 EventLog.WriteEntry("EDCAgent", "Close Connect", EventLogEntryType.Information);
                 client.Close();
-            }
-
-            if (sqlConn.State == ConnectionState.Connecting)
-            {
-                sqlConn.Close();
             }
 
             if (listenThread != null && listenThread.ThreadState == System.Threading.ThreadState.Running)
@@ -84,7 +78,7 @@ namespace EDCServer
                     connectClient.Add(client);
 
                     System.Diagnostics.Debug.WriteLine("New Connect, total:" + connectClient.Count);
-                    EventLog.WriteEntry("EDCAgent", "New Client connected", EventLogEntryType.Information);
+                    EventLog.WriteEntry("EDCAgent", "New Client connected: " + client.Client.RemoteEndPoint.ToString(), EventLogEntryType.Information);
                     //create a thread to handle communication 
                     //with connected client
                     Thread clientThread = new Thread(new ParameterizedThreadStart(HandleClientComm));
@@ -103,6 +97,7 @@ namespace EDCServer
         private void HandleClientComm(object client)
         {
             TcpClient tcpClient = (TcpClient)client;
+            string clientIP = tcpClient.Client.RemoteEndPoint.ToString();
             NetworkStream clientStream;
             byte[] buf_read;
             byte[] send_buf;
@@ -114,8 +109,8 @@ namespace EDCServer
             try
             {
                 clientStream = tcpClient.GetStream();
-                System.Diagnostics.Debug.WriteLine("Start read from client" + client.GetHashCode());
-                EventLog.WriteEntry("EDCAgent", "Client thread start", EventLogEntryType.Information);
+                System.Diagnostics.Debug.WriteLine("Start read from client" + clientIP);
+                EventLog.WriteEntry("EDCAgent", "Client thread start: " + clientIP, EventLogEntryType.Information);
 
                 while (true)
                 {
@@ -130,7 +125,7 @@ namespace EDCServer
                     {
                         //a socket error has occured
                         System.Diagnostics.Debug.WriteLine("IOError");
-                        EventLog.WriteEntry("EDCAgent", "Client stream read failure", EventLogEntryType.FailureAudit);
+                        EventLog.WriteEntry("EDCAgent", "Client stream read failure: " + clientIP, EventLogEntryType.FailureAudit);
                         break;
                     }
 
@@ -138,7 +133,7 @@ namespace EDCServer
                     {
                         //the client has disconnected from the server
                         System.Diagnostics.Debug.WriteLine("Disconnect");
-                        EventLog.WriteEntry("EDCAgent", "EDCClient disconnect", EventLogEntryType.Information);
+                        EventLog.WriteEntry("EDCAgent", "EDCClient disconnect: " + clientIP, EventLogEntryType.Information);
                         break;
                         //throw new Exception("Disconnect");
                     }
@@ -187,6 +182,7 @@ namespace EDCServer
                         {
                             case C.kSyncVerCmd:
                                 update_edc_version(cmd_tokens);
+                                EventLog.WriteEntry("EDCAgent", "Client Send: " + cmd, EventLogEntryType.Information);
                                 break;
                             case C.kSyncEmpCmd:
                                 send_str = get_employee_list(cmd_tokens);
@@ -245,7 +241,7 @@ namespace EDCServer
                             case C.kSyncProjDeltaOkCmd:
                                 proj_delta_ok(cmd_tokens);
                                 break;
-                            default:
+                            default:    
                                 break;
                         }
 
@@ -279,37 +275,40 @@ namespace EDCServer
         private string get_emp_delta(string[] plist)
         {
             StringBuilder emp_list = new StringBuilder();
-            SqlCommand sql_cmd;
-            SqlDataReader sql_reader;
 
-            sql_cmd = new SqlCommand("sp_SyncEDCInfo", sqlConn);
-            sql_cmd.CommandType = CommandType.StoredProcedure;
-            sql_cmd.Parameters.Add("@state", SqlDbType.VarChar, 20).Value = "get_sync_emp";
-            sql_cmd.Parameters.Add("@EDCNO", SqlDbType.VarChar, 50).Value = plist[1];
-
-
-            sql_reader = sql_cmd.ExecuteReader();
-            while (sql_reader.Read())
+            using (SqlConnection sql_conn = new SqlConnection(this.sqlConnStr))
             {
-                emp_list.Append(sql_reader["DepartmentName"]);
-                emp_list.Append("\t");
-                emp_list.Append(sql_reader["DepartmentNo"]);
-                emp_list.Append("\t");
-                emp_list.Append(sql_reader["UserNumber"]);
-                emp_list.Append("\t");
-                emp_list.Append(sql_reader["CardNumber"]);
-                emp_list.Append("\t");
-                emp_list.Append(sql_reader["IniQuota"]);
-                emp_list.Append("\t");
-                emp_list.Append(sql_reader["NowQuota"]);
-                emp_list.Append("\t");
-                emp_list.Append(sql_reader["IsColorPrint"]);
-                emp_list.Append("\t");
-                emp_list.Append(sql_reader["StatusType"]);
-                emp_list.Append("\n");
+                sql_conn.Open();
+                using (SqlCommand sql_cmd = new SqlCommand("sp_SyncEDCInfo", sql_conn))
+                {
+                    sql_cmd.CommandType = CommandType.StoredProcedure;
+                    sql_cmd.Parameters.Add("@state", SqlDbType.VarChar, 20).Value = "get_sync_emp";
+                    sql_cmd.Parameters.Add("@EDCNO", SqlDbType.VarChar, 50).Value = plist[1];
+                    using (SqlDataReader sql_reader = sql_cmd.ExecuteReader())
+                    {
+                        while (sql_reader.Read())
+                        {
+                            emp_list.Append(sql_reader["DepartmentName"]);
+                            emp_list.Append("\t");
+                            emp_list.Append(sql_reader["DepartmentNo"]);
+                            emp_list.Append("\t");
+                            emp_list.Append(sql_reader["UserNumber"]);
+                            emp_list.Append("\t");
+                            emp_list.Append(sql_reader["CardNumber"]);
+                            emp_list.Append("\t");
+                            emp_list.Append(sql_reader["IniQuota"]);
+                            emp_list.Append("\t");
+                            emp_list.Append(sql_reader["NowQuota"]);
+                            emp_list.Append("\t");
+                            emp_list.Append(sql_reader["IsColorPrint"]);
+                            emp_list.Append("\t");
+                            emp_list.Append(sql_reader["StatusType"]);
+                            emp_list.Append("\n");
+                        }
+                        emp_list.Insert(0, emp_list.Length.ToString() + "|");
+                    }
+                }
             }
-            emp_list.Insert(0, emp_list.Length.ToString() + "|");
-            sql_reader.Close();
 
             return emp_list.ToString();
         }
@@ -318,37 +317,45 @@ namespace EDCServer
         private string get_proj_delta(string[] plist)
         {
             StringBuilder proj_list = new StringBuilder();
-            SqlCommand sql_cmd;
-            SqlDataReader sql_reader;
 
-            sql_cmd = new SqlCommand("sp_SyncEDCInfo", sqlConn);
-            sql_cmd.CommandType = CommandType.StoredProcedure;
-            sql_cmd.Parameters.Add("@state", SqlDbType.VarChar, 20).Value = "get_sync_prj";
-            sql_cmd.Parameters.Add("@EDCNO", SqlDbType.VarChar, 50).Value = plist[1];
-
-            sql_reader = sql_cmd.ExecuteReader();
-            while (sql_reader.Read())
+            using (SqlConnection sql_conn = new SqlConnection(this.sqlConnStr))
             {
-                proj_list.Append(sql_reader["ProjectNO"]);
-                proj_list.Append("\t");
-                proj_list.Append(sql_reader["StatusType"]);
-                proj_list.Append("\n");
+                sql_conn.Open();
+                using (SqlCommand sql_cmd = new SqlCommand("sp_SyncEDCInfo", sql_conn))
+                {
+                    sql_cmd.CommandType = CommandType.StoredProcedure;
+                    sql_cmd.Parameters.Add("@state", SqlDbType.VarChar, 20).Value = "get_sync_prj";
+                    sql_cmd.Parameters.Add("@EDCNO", SqlDbType.VarChar, 50).Value = plist[1];
+                    using (SqlDataReader sql_reader = sql_cmd.ExecuteReader())
+                    {
+                        while (sql_reader.Read())
+                        {
+                            proj_list.Append(sql_reader["ProjectNO"]);
+                            proj_list.Append("\t");
+                            proj_list.Append(sql_reader["StatusType"]);
+                            proj_list.Append("\n");
+                        }
+                        proj_list.Insert(0, proj_list.Length.ToString() + "|");
+                    }
+                }
             }
-            sql_reader.Close();
-            proj_list.Insert(0, proj_list.Length.ToString() + "|");
             return proj_list.ToString();
         }
 
 
         private void emp_delta_ok(string[] plist)
         {
-            SqlCommand sql_cmd;
-
-            sql_cmd = new SqlCommand("sp_SyncEDCInfo", sqlConn);
-            sql_cmd.CommandType = CommandType.StoredProcedure;
-            sql_cmd.Parameters.Add("@state", SqlDbType.VarChar, 20).Value = "del_sync_emp";
-            sql_cmd.Parameters.Add("@EDCNO", SqlDbType.VarChar, 50).Value = plist[1];
-            sql_cmd.ExecuteNonQuery();
+            using (SqlConnection sql_conn = new SqlConnection(this.sqlConnStr))
+            {
+                sql_conn.Open();
+                using (SqlCommand sql_cmd = new SqlCommand("sp_SyncEDCInfo", sql_conn))
+                {
+                    sql_cmd.CommandType = CommandType.StoredProcedure;
+                    sql_cmd.Parameters.Add("@state", SqlDbType.VarChar, 20).Value = "del_sync_emp";
+                    sql_cmd.Parameters.Add("@EDCNO", SqlDbType.VarChar, 50).Value = plist[1];
+                    sql_cmd.ExecuteNonQuery();
+                }
+            }
         }
 
 
@@ -370,57 +377,65 @@ namespace EDCServer
 
         private void proj_delta_ok(string[] plist)
         {
-            SqlCommand sql_cmd;
-
-            sql_cmd = new SqlCommand("sp_SyncEDCInfo", sqlConn);
-            sql_cmd.CommandType = CommandType.StoredProcedure;
-            sql_cmd.Parameters.Add("@state", SqlDbType.VarChar, 20).Value = "del_sync_prj";
-            sql_cmd.Parameters.Add("@EDCNO", SqlDbType.VarChar, 50).Value = plist[1];
-            sql_cmd.ExecuteNonQuery();
+            using (SqlConnection sql_conn = new SqlConnection(this.sqlConnStr))
+            {
+                sql_conn.Open();
+                using (SqlCommand sql_cmd = new SqlCommand("sp_SyncEDCInfo", sql_conn))
+                {
+                    sql_cmd.CommandType = CommandType.StoredProcedure;
+                    sql_cmd.Parameters.Add("@state", SqlDbType.VarChar, 20).Value = "del_sync_prj";
+                    sql_cmd.Parameters.Add("@EDCNO", SqlDbType.VarChar, 50).Value = plist[1];
+                    sql_cmd.ExecuteNonQuery();
+                }
+            }
         }
 
 
         private string get_employee_list(string[] plist)
         {
             StringBuilder emp_list = new StringBuilder();
-            SqlCommand sql_cmd;
-            SqlDataReader sql_reader;
-
             //呼叫SP
             //依據資料組成一樣的list, 以\n分隔
             string sql_select = "SELECT " +
                                 "[dbo].[DataDepartment].[DepartmentName]," +
-		                        "[dbo].[DataEmployee].[DepartmentNo]," +
-		                        "[dbo].[DataEmployee].[UserNumber]," +
-		                        "[dbo].[DataEmployee].[CardNumber]," +
-		                        "[dbo].[DataEmployee].[IniQuota]," +
-		                        "[dbo].[DataEmployee].[NowQuota]," +
+                                "[dbo].[DataEmployee].[DepartmentNo]," +
+                                "[dbo].[DataEmployee].[UserNumber]," +
+                                "[dbo].[DataEmployee].[CardNumber]," +
+                                "[dbo].[DataEmployee].[IniQuota]," +
+                                "[dbo].[DataEmployee].[NowQuota]," +
                                 "[dbo].[DataEmployee].[IsColorPrint] " +
-	                            "FROM [dbo].[DataEmployee] JOIN [dbo].[DataDepartment]" +
-	                            "ON [dbo].[DataEmployee].[DepartmentNo] = [dbo].[DataDepartment].[DepartmentNo]";
-            sql_cmd = new SqlCommand(sql_select, sqlConn);
-            sql_cmd.CommandType = System.Data.CommandType.Text;
-            sql_reader = sql_cmd.ExecuteReader();
+                                "FROM [dbo].[DataEmployee] JOIN [dbo].[DataDepartment]" +
+                                "ON [dbo].[DataEmployee].[DepartmentNo] = [dbo].[DataDepartment].[DepartmentNo]";
 
-            while (sql_reader.Read())
+            using (SqlConnection sql_conn = new SqlConnection(this.sqlConnStr))
             {
-                    emp_list.Append(sql_reader["DepartmentName"]);
-                    emp_list.Append("\t");
-                    emp_list.Append(sql_reader["DepartmentNo"]);
-                    emp_list.Append("\t");
-                    emp_list.Append(sql_reader["UserNumber"]);
-                    emp_list.Append("\t");
-                    emp_list.Append(sql_reader["CardNumber"]);
-                    emp_list.Append("\t");
-                    emp_list.Append(sql_reader["IniQuota"]);
-                    emp_list.Append("\t");
-                    emp_list.Append(sql_reader["NowQuota"]);
-                    emp_list.Append("\t");
-                    emp_list.Append(sql_reader["IsColorPrint"]);
-                    emp_list.Append("\n");
+                sql_conn.Open();
+                using (SqlCommand sql_cmd = new SqlCommand(sql_select, sql_conn))
+                {
+                    sql_cmd.CommandType = System.Data.CommandType.Text;
+                    using (SqlDataReader sql_reader = sql_cmd.ExecuteReader())
+                    {
+                        while (sql_reader.Read())
+                        {
+                            emp_list.Append(sql_reader["DepartmentName"]);
+                            emp_list.Append("\t");
+                            emp_list.Append(sql_reader["DepartmentNo"]);
+                            emp_list.Append("\t");
+                            emp_list.Append(sql_reader["UserNumber"]);
+                            emp_list.Append("\t");
+                            emp_list.Append(sql_reader["CardNumber"]);
+                            emp_list.Append("\t");
+                            emp_list.Append(sql_reader["IniQuota"]);
+                            emp_list.Append("\t");
+                            emp_list.Append(sql_reader["NowQuota"]);
+                            emp_list.Append("\t");
+                            emp_list.Append(sql_reader["IsColorPrint"]);
+                            emp_list.Append("\n");
+                        }
+                        emp_list.Insert(0, emp_list.Length.ToString() + "|");
+                    }
+                }
             }
-            sql_reader.Close();
-            emp_list.Insert(0, emp_list.Length.ToString() + "|");
             return emp_list.ToString();
         }
 
@@ -428,20 +443,24 @@ namespace EDCServer
         private string get_proj_list(string[] plist)
         {
             StringBuilder proj_list = new StringBuilder();
-            SqlCommand sql_cmd;
-            SqlDataReader sql_reader;
-
-            sql_cmd = new SqlCommand("SELECT [dbo].[DataProject].[ProjectNO] FROM [dbo].[DataProject]", sqlConn);
-            sql_cmd.CommandType = System.Data.CommandType.Text;
-            sql_reader = sql_cmd.ExecuteReader();
-
-            while (sql_reader.Read())
+            string sql_str = "SELECT [dbo].[DataProject].[ProjectNO] FROM [dbo].[DataProject]";
+            using (SqlConnection sql_conn = new SqlConnection(this.sqlConnStr))
             {
-                proj_list.Append(sql_reader["ProjectNO"]);  
-                proj_list.Append("\n");
+                sql_conn.Open();
+                using (SqlCommand sql_cmd = new SqlCommand(sql_str, sql_conn))
+                {
+                    sql_cmd.CommandType = System.Data.CommandType.Text;
+                    using (SqlDataReader sql_reader = sql_cmd.ExecuteReader())
+                    {
+                        while (sql_reader.Read())
+                        {
+                            proj_list.Append(sql_reader["ProjectNO"]);
+                            proj_list.Append("\n");
+                        }
+                        proj_list.Insert(0, proj_list.Length.ToString() + "|");
+                    }
+                }
             }
-            sql_reader.Close();
-            proj_list.Insert(0, proj_list.Length.ToString() + "|");
             return proj_list.ToString();
         }
 
@@ -449,14 +468,9 @@ namespace EDCServer
         private string get_edc_list(string[] plist)
         {
             StringBuilder edc_list = new StringBuilder();
-            SqlCommand cmd_heartbeat;
-            SqlCommand cmd_edc;
-            SqlCommand cmd_pp;
             //SqlDataReader sql_reader;
             DataSet edc_dataset = new DataSet();
             DataSet pp_dataset = new DataSet();
-            SqlDataAdapter adapter_edc;
-            SqlDataAdapter adapter_pp;
 
             string edc_id = plist[1];
             string gray_big = "";
@@ -467,81 +481,99 @@ namespace EDCServer
             string color_other = "";
             int[] paper_size = new int[]{4, 5};     //NOTE default value is here!!!
 
-            string sql_select = string.Format("SELECT * FROM [dbo].[DataEDC] WHERE [dbo].[DataEDC].[EDCNO] = '{0}'", edc_id);
-            cmd_edc = new SqlCommand(sql_select, sqlConn);
-            cmd_edc.CommandType = System.Data.CommandType.Text;
-            adapter_edc = new SqlDataAdapter(cmd_edc);
-            adapter_edc.Fill(edc_dataset, "EDC");
-
-            if (edc_dataset.Tables[0].Rows.Count > 0)
+            using (SqlConnection sql_conn = new SqlConnection(this.sqlConnStr))
             {
-                string sql_heartbeat = string.Format("UPDATE [dbo].[DataEDC] SET [dbo].[DataEDC].[EDCDT] = getdate() WHERE [dbo].[DataEDC].[EDCNO] = '{0}'", edc_id);
-                cmd_heartbeat = new SqlCommand(sql_heartbeat, sqlConn);
-                cmd_heartbeat.CommandType = System.Data.CommandType.Text;
-                if (cmd_heartbeat.ExecuteNonQuery() != 1)
+                sql_conn.Open();
+                string sql_select = string.Format("SELECT * FROM [dbo].[DataEDC] WHERE [dbo].[DataEDC].[EDCNO] = '{0}'", edc_id);
+                using (SqlCommand sql_cmd = new SqlCommand(sql_select, sql_conn))
                 {
-                    System.Diagnostics.Debug.WriteLine("Write EDC heartbeat to DB error");
-                }
-
-                string sql_printpay = string.Format("SELECT * FROM [dbo].[DataPrintPay]");
-                cmd_pp = new SqlCommand(sql_printpay, sqlConn);
-                cmd_pp.CommandType = System.Data.CommandType.Text;
-                adapter_pp = new SqlDataAdapter(cmd_pp);
-                adapter_pp.Fill(pp_dataset, "PrintPay");
-
-                edc_list.Append(edc_dataset.Tables["EDC"].Rows[0]["EDCNO"]);
-                edc_list.Append("\t");
-                edc_list.Append(edc_dataset.Tables["EDC"].Rows[0]["EDCIP"]);
-                edc_list.Append("\t");
-                edc_list.Append(edc_dataset.Tables["EDC"].Rows[0]["MachineIP"]);
-                edc_list.Append("\t");
-                edc_list.Append(edc_dataset.Tables["EDC"].Rows[0]["EDCLimitTime"]);
-                edc_list.Append("\t");
-                edc_list.Append(edc_dataset.Tables["EDC"].Rows[0]["EDCShowLimitTime"]);
-                edc_list.Append("\t");
-
-                foreach (DataRow pp_row in pp_dataset.Tables["Printpay"].Rows)
-                {
-                    if (pp_row["PrintType"].ToString() == C.kGrayBig)
+                    sql_cmd.CommandType = System.Data.CommandType.Text;
+                    using (SqlDataAdapter sql_adapter = new SqlDataAdapter(sql_cmd))
                     {
-                        gray_big = pp_row["PrintPay"].ToString();
-                    }
-                    else if (pp_row["PrintType"].ToString() == C.kGraySmall)
-                    {
-                        gray_small = pp_row["PrintPay"].ToString();
-                        // !NOTE! only use gray_small setup to determine whole setup
-                        paper_size = get_smaller_paper_size(pp_row["PaperType"].ToString());
-                    }
-                    else if (pp_row["PrintType"].ToString() == C.kGrayOther)
-                    {
-                        gray_other = pp_row["PrintPay"].ToString();
-                    }
-                    else if (pp_row["PrintType"].ToString() == C.kColorBig)
-                    {
-                        color_big = pp_row["PrintPay"].ToString();
-                    }
-                    else if (pp_row["PrintType"].ToString() == C.kColorSmall)
-                    {
-                        color_small = pp_row["PrintPay"].ToString();
-                    }
-                    else if (pp_row["PrintType"].ToString() == C.kColorOther)
-                    {
-                        color_other = pp_row["PrintPay"].ToString();
+                        sql_adapter.Fill(edc_dataset, "EDC");
                     }
                 }
 
-                edc_list.Append(gray_big);
-                edc_list.Append("\t");
-                edc_list.Append(gray_small);
-                edc_list.Append("\t");
-                edc_list.Append(color_big);
-                edc_list.Append("\t");
-                edc_list.Append(color_small);
-                edc_list.Append("\t");
-                edc_list.Append(paper_size[0].ToString());
-                edc_list.Append("\t");
-                edc_list.Append(paper_size[1].ToString());
-                edc_list.Append("\n");
+                if (edc_dataset.Tables[0].Rows.Count == 0)
+                {
+                    EventLog.WriteEntry("EDCAgent", "Write EDC heartbeat to DB error", EventLogEntryType.Information);
+                }
+                else
+                {
+                    string sql_heartbeat = string.Format("UPDATE [dbo].[DataEDC] SET [dbo].[DataEDC].[EDCDT] = getdate() WHERE [dbo].[DataEDC].[EDCNO] = '{0}'", edc_id);
+                    using (SqlCommand sql_cmd = new SqlCommand(sql_heartbeat, sql_conn))
+                    {
+                        sql_cmd.CommandType = System.Data.CommandType.Text;
+                        if (sql_cmd.ExecuteNonQuery() != 1)
+                        {
+                            EventLog.WriteEntry("EDCAgent", "Write EDC heartbeat to DB error", EventLogEntryType.Error);
+                        }
+                    }
+                    
+                    string sql_printpay = string.Format("SELECT * FROM [dbo].[DataPrintPay]");
+                    using (SqlCommand sql_cmd = new SqlCommand(sql_printpay, sql_conn))
+                    {
+                        sql_cmd.CommandType = System.Data.CommandType.Text;
+                        using (SqlDataAdapter sql_adapter = new SqlDataAdapter(sql_cmd))
+                        {
+                            sql_adapter.Fill(pp_dataset, "PrintPay");
+
+                            edc_list.Append(edc_dataset.Tables["EDC"].Rows[0]["EDCNO"]);
+                            edc_list.Append("\t");
+                            edc_list.Append(edc_dataset.Tables["EDC"].Rows[0]["EDCIP"]);
+                            edc_list.Append("\t");
+                            edc_list.Append(edc_dataset.Tables["EDC"].Rows[0]["MachineIP"]);
+                            edc_list.Append("\t");
+                            edc_list.Append(edc_dataset.Tables["EDC"].Rows[0]["EDCLimitTime"]);
+                            edc_list.Append("\t");
+                            edc_list.Append(edc_dataset.Tables["EDC"].Rows[0]["EDCShowLimitTime"]);
+                            edc_list.Append("\t");
+
+                            foreach (DataRow pp_row in pp_dataset.Tables["Printpay"].Rows)
+                            {
+                                if (pp_row["PrintType"].ToString() == C.kGrayBig)
+                                {
+                                    gray_big = pp_row["PrintPay"].ToString();
+                                }
+                                else if (pp_row["PrintType"].ToString() == C.kGraySmall)
+                                {
+                                    gray_small = pp_row["PrintPay"].ToString();
+                                    // !NOTE! only use gray_small setup to determine whole setup
+                                    paper_size = get_smaller_paper_size(pp_row["PaperType"].ToString());
+                                }
+                                else if (pp_row["PrintType"].ToString() == C.kGrayOther)
+                                {
+                                    gray_other = pp_row["PrintPay"].ToString();
+                                }
+                                else if (pp_row["PrintType"].ToString() == C.kColorBig)
+                                {
+                                    color_big = pp_row["PrintPay"].ToString();
+                                }
+                                else if (pp_row["PrintType"].ToString() == C.kColorSmall)
+                                {
+                                    color_small = pp_row["PrintPay"].ToString();
+                                }
+                                else if (pp_row["PrintType"].ToString() == C.kColorOther)
+                                {
+                                    color_other = pp_row["PrintPay"].ToString();
+                                }
+                            }
+
+                            edc_list.Append(gray_big);
+                            edc_list.Append("\t");
+                            edc_list.Append(gray_small);
+                            edc_list.Append("\t");
+                            edc_list.Append(color_big);
+                            edc_list.Append("\t");
+                            edc_list.Append(color_small);
+                            edc_list.Append("\t");
+                            edc_list.Append(paper_size[0].ToString());
+                            edc_list.Append("\t");
+                            edc_list.Append(paper_size[1].ToString());
+                            edc_list.Append("\n");
+                        }
+                    }
+                }
             }
 
             edc_list.Insert(0, edc_list.Length.ToString() + "|");
@@ -551,21 +583,23 @@ namespace EDCServer
 
         private void update_edc_version(string[] plist)
         {
-            SqlCommand sql_update;
             if (plist.Length < 3)
             {
                 throw new Exception(string.Format("EDC version command is malform: '{0}'", string.Join(" ", plist)));
             }
-
             string edc_version = plist[1];
             string edc_no = plist[2];
 
-            using (sql_update = new SqlCommand("UPDATE [dbo].[DataEDC] SET [EDCVer] = @edc_ver WHERE [EDCNO] = @edc_no", sqlConn))
+            using (SqlConnection sql_conn = new SqlConnection(this.sqlConnStr))
             {
-                sql_update.Parameters.AddWithValue("@edc_ver", edc_version);
-                sql_update.Parameters.AddWithValue("@edc_no", edc_no);
-                sql_update.CommandType = System.Data.CommandType.Text;
-                sql_update.ExecuteNonQuery();
+                sql_conn.Open();
+                using (SqlCommand sql_update = new SqlCommand("UPDATE [dbo].[DataEDC] SET [EDCVer] = @edc_ver WHERE [EDCNO] = @edc_no", sql_conn))
+                {
+                    sql_update.Parameters.AddWithValue("@edc_ver", edc_version);
+                    sql_update.Parameters.AddWithValue("@edc_no", edc_no);
+                    sql_update.CommandType = System.Data.CommandType.Text;
+                    sql_update.ExecuteNonQuery();
+                }
             }
         }
 
@@ -614,79 +648,99 @@ namespace EDCServer
 
         private void sync_edc_log(string recv)
         {
-
             string[] recv_list;
-
             recv_list = recv.Split('\n');
 
-            //Start from 2nd line
-            for (int i = 1; i < recv_list.Length; i++)
+            using (SqlConnection sql_conn = new SqlConnection(this.sqlConnStr))
             {
-                if (recv_list[i].Trim().Length != 0)
+                sql_conn.Open();
+                //Start from 2nd line
+                for (int i = 1; i < recv_list.Length; i++)
                 {
-                    EDCLOG edc_log = parse_log(recv_list[i].Trim());
-                    SqlCommand sql_insert_log = new SqlCommand("INSERT INTO [dbo].[EDCLogTmp] (EDCLog) VALUES (@edc_log)", sqlConn);
-                    sql_insert_log.Parameters.Add(C.kFieldEDCLog, SqlDbType.NVarChar);
-                    sql_insert_log.Parameters[C.kFieldEDCLog].Value = recv_list[i].Trim();
-                    sql_insert_log.CommandType = System.Data.CommandType.Text;  
-                    if (sql_insert_log.ExecuteNonQuery() != 1)
+                    if (recv_list[i].Trim().Length != 0)
                     {
-                        System.Diagnostics.Debug.WriteLine("Write log to DB error");
-                    }
-                    EventLog.WriteEntry("EDCAgent", "Client thread insert EDC_log: " + recv_list[i], EventLogEntryType.SuccessAudit);
-
-                    if (edc_log.type == "CARD")
-                    {
-                        string[] content_token = edc_log.content.Split(' ');
-                        if (content_token[0] == "VALID")
+                        EDCLOG edc_log = parse_log(recv_list[i].Trim());
+                        using (SqlCommand sql_insert_log = new SqlCommand("INSERT INTO [dbo].[EDCLogTmp] (EDCLog) VALUES (@edc_log)", sql_conn))
                         {
-                            //TODO Exception here!!!其他資訊: 索引在陣列的界限之外。
-                            //getdate()改用edc_log.log_time寫入EDC的時間
-                            string sql_insert_pq = string.Format("INSERT INTO [dbo].[PQCardInfo] (EDCNO, CardNumber, UserNumber, ProjectNO, CardDT)" +
-                                "VALUES ('{0}', '{1}', '{2}', '{3}', '{4}')", edc_log.edc_no, content_token[1], edc_log.emp_no, edc_log.project_no, edc_log.log_time);
-                            SqlCommand cmd_Insert_pq = new SqlCommand(sql_insert_pq, sqlConn);
-                            cmd_Insert_pq.CommandType = System.Data.CommandType.Text;
-                            if (cmd_Insert_pq.ExecuteNonQuery() != 1)
+                            sql_insert_log.Parameters.Add(C.kFieldEDCLog, SqlDbType.NVarChar);
+                            sql_insert_log.Parameters[C.kFieldEDCLog].Value = recv_list[i].Trim();
+                            sql_insert_log.CommandType = System.Data.CommandType.Text;
+                            if (sql_insert_log.ExecuteNonQuery() != 1)
                             {
-                                System.Diagnostics.Debug.WriteLine("Write PQCardInfo to DB error");
+                                EventLog.WriteEntry("EDCAgent", "Insert EDCLOG to DB failure", EventLogEntryType.Error);
                             }
-                            EventLog.WriteEntry("EDCAgent", "Client thread insert into PQCardInfo: " + recv_list[i], EventLogEntryType.SuccessAudit);
-                        }
-                    }
-                    else if (edc_log.type == "PRINT" || edc_log.type == "COPY")
-                    {
-                        List<KeyValuePair<string, int>> paper_usage = parse_count_content(edc_log.content);
-                        foreach (KeyValuePair<string, int> usage in paper_usage)
-                        {
-                            string sql_insert_cc = string.Format("INSERT INTO [dbo].[CopyCount] (EDCNO, ProjectNO, UserNumber, PrintType, PrintCount, UseDT)" +
-                                    "VALUES ('{0}', '{1}', '{2}', '{3}', '{4}', '{5}')",
-                                    edc_log.edc_no, edc_log.project_no, edc_log.emp_no, usage.Key, usage.Value, edc_log.log_time);
-                            //MessageBox.Show(sql_insert_cc);
-                            SqlCommand cmd_insert_cc = new SqlCommand(sql_insert_cc, sqlConn);
-                            cmd_insert_cc.CommandType = System.Data.CommandType.Text;
-                            if (cmd_insert_cc.ExecuteNonQuery() != 1)   
+                            else
                             {
-                                EventLog.WriteEntry("EDCAgent", "Client thread insert into SEFScanInfo failure." + recv_list[i], EventLogEntryType.SuccessAudit);
+                                EventLog.WriteEntry("EDCAgent", "Client thread insert EDC_log: " + recv_list[i], EventLogEntryType.SuccessAudit);
                             }
-
-                            EventLog.WriteEntry("EDCAgent", "Client thread insert into CopyCount: " + recv_list[i], EventLogEntryType.SuccessAudit);
                         }
-                    }
-                    else if (edc_log.type == "SCAN")
-                    {
-                        string sql_scan = string.Format("INSERT INTO [dbo].[SEFScanInfo] (EDCNO, UserNumber, ProjectNo, ScanDT)" +
-                            "VALUES ( '{0}', '{1}', '{2}', '{3}')", edc_log.edc_no, edc_log.emp_no, edc_log.project_no, edc_log.log_time);
-                        SqlCommand cmd_scan = new SqlCommand(sql_scan, sqlConn);
-                        cmd_scan.CommandType = System.Data.CommandType.Text;
-                        if (cmd_scan.ExecuteNonQuery() != 1)
+                        
+                        if (edc_log.type == "CARD")
                         {
-                            EventLog.WriteEntry("EDCAgent", "Client thread insert into SEFScanInfo failure." + recv_list[i], EventLogEntryType.SuccessAudit);
+                            string[] content_token = edc_log.content.Split(' ');
+                            if (content_token[0] == "VALID")
+                            {
+                                //TODO Exception here!!!其他資訊: 索引在陣列的界限之外。
+                                //getdate()改用edc_log.log_time寫入EDC的時間
+                                string sql_insert_pq = string.Format("INSERT INTO [dbo].[PQCardInfo] (EDCNO, CardNumber, UserNumber, ProjectNO, CardDT)" +
+                                    "VALUES ('{0}', '{1}', '{2}', '{3}', '{4}')", edc_log.edc_no, content_token[1], edc_log.emp_no, edc_log.project_no, edc_log.log_time);
+                                using (SqlCommand cmd_Insert_pq = new SqlCommand(sql_insert_pq, sql_conn))
+                                {
+                                    cmd_Insert_pq.CommandType = System.Data.CommandType.Text;
+                                    if (cmd_Insert_pq.ExecuteNonQuery() != 1)
+                                    {
+                                        EventLog.WriteEntry("EDCAgent", "Insert PQCardInfo to DB error", EventLogEntryType.Error);
+                                    }
+                                    else
+                                    {
+                                        EventLog.WriteEntry("EDCAgent", "Client thread insert into PQCardInfo: " + recv_list[i], EventLogEntryType.SuccessAudit);
+                                    }
+                                }
+                            }
                         }
-                        EventLog.WriteEntry("EDCAgent", "Client thread insert into SEFScanInfo Success." + recv_list[i], EventLogEntryType.SuccessAudit);
+                        else if (edc_log.type == "PRINT" || edc_log.type == "COPY")
+                        {
+                            List<KeyValuePair<string, int>> paper_usage = parse_count_content(edc_log.content);
+                            foreach (KeyValuePair<string, int> usage in paper_usage)
+                            {
+                                string sql_insert_cc = string.Format("INSERT INTO [dbo].[CopyCount] (EDCNO, ProjectNO, UserNumber, PrintType, PrintCount, UseDT)" +
+                                        "VALUES ('{0}', '{1}', '{2}', '{3}', '{4}', '{5}')",
+                                        edc_log.edc_no, edc_log.project_no, edc_log.emp_no, usage.Key, usage.Value, edc_log.log_time);
+                                //MessageBox.Show(sql_insert_cc);
+                                using (SqlCommand cmd_insert_cc = new SqlCommand(sql_insert_cc, sql_conn))
+                                {
+                                    cmd_insert_cc.CommandType = System.Data.CommandType.Text;
+                                    if (cmd_insert_cc.ExecuteNonQuery() != 1)
+                                    {
+                                        EventLog.WriteEntry("EDCAgent", "Client thread insert into SEFScanInfo failure." + recv_list[i], EventLogEntryType.Error);
+                                    }
+                                    else
+                                    {
+                                        EventLog.WriteEntry("EDCAgent", "Client thread insert into CopyCount: " + recv_list[i], EventLogEntryType.SuccessAudit);
+                                    }
+                                }
+                            }
+                        }
+                        else if (edc_log.type == "SCAN")
+                        {
+                            string sql_scan = string.Format("INSERT INTO [dbo].[SEFScanInfo] (EDCNO, UserNumber, ProjectNo, ScanDT)" +
+                                "VALUES ( '{0}', '{1}', '{2}', '{3}')", edc_log.edc_no, edc_log.emp_no, edc_log.project_no, edc_log.log_time);
+                            using (SqlCommand cmd_scan = new SqlCommand(sql_scan, sql_conn))
+                            {
+                                cmd_scan.CommandType = System.Data.CommandType.Text;
+                                if (cmd_scan.ExecuteNonQuery() != 1)
+                                {
+                                    EventLog.WriteEntry("EDCAgent", "Client thread insert into SEFScanInfo failure." + recv_list[i], EventLogEntryType.Error);
+                                }
+                                else
+                                {
+                                    EventLog.WriteEntry("EDCAgent", "Client thread insert into SEFScanInfo Success." + recv_list[i], EventLogEntryType.SuccessAudit);
+                                }
+                            }
+                        }
                     }
                 }
             }
-
             //return true;
         }
 

@@ -18,6 +18,7 @@
 #include "lib/matrix500.h"
 #include "lib/libmpedc.h"
 
+#define EDC_CLIENT_VERSION  "1.13"
 #define MAX_COM_PORT_LEN    (64)
 #define MAX_COM_CMD_BUFFER  (9)
 #define MAX_PROJECT_LEN     (4)
@@ -61,7 +62,7 @@
         fprintf(stderr, "%s [%s][%s] %s: " exp "\n",\
                 get_cur_YmdHMS( ),                  \
                 mod_name,                           \
-                LOGLEVLE2STR[lv],                   \
+                LOGLEVEL2STR[lv],                   \
                 func_name                           \
         );                                          \
         log_unlock();                               \
@@ -77,7 +78,7 @@
         fprintf(stderr, "%s [%s][%s] %s: " exp "\n",\
                 get_cur_YmdHMS( ),                  \
                 mod_name,                           \
-                LOGLEVLE2STR[lv],                   \
+                LOGLEVEL2STR[lv],                   \
                 func_name,                          \
                 p1                                  \
         );                                          \
@@ -93,7 +94,7 @@
         fprintf(stderr, "%s [%s][%s] %s: " exp "\n",\
                 get_cur_YmdHMS( ),                  \
                 mod_name,                           \
-                LOGLEVLE2STR[lv],                   \
+                LOGLEVEL2STR[lv],                   \
                 func_name,                          \
                 p1, p2                              \
         );                                          \
@@ -109,7 +110,7 @@
         fprintf(stderr, "%s [%s][%s] %s: " exp "\n",\
                 get_cur_YmdHMS( ),                  \
                 mod_name,                           \
-                LOGLEVLE2STR[lv],                   \
+                LOGLEVEL2STR[lv],                   \
                 func_name,                          \
                 p1, p2, p3                          \
         );                                          \
@@ -118,7 +119,7 @@
 }                                                   \
 
 const char kModName[] = "EDCClient";
-const char kVersion[] = "1.1";
+const char kVersion[] = EDC_CLIENT_VERSION;
 const char kEmpListFile[] = "./employee.list";
 const char kEDCListFile[] = "./edc.list";
 const char kProjListFile[] = "./projects.list";
@@ -324,7 +325,7 @@ typedef enum _log_level
     DEBUG
 } LOG_LEVEL; 
 
-const char LOGLEVLE2STR[5][MAX_LOG_LEVEL_LEN] = {
+const char LOGLEVEL2STR[5][MAX_LOG_LEVEL_LEN] = {
     "FATAL",
     "ERROR",
     "WARN",
@@ -556,6 +557,7 @@ void quit(EDC_CTX*);
 int get_current_time_r(struct tm* p_time_info);
 int show_datetime(EDC_CTX* p_ctx, struct tm* p_time_info);
 int show_line(EDC_CTX*, int, const char*);
+int show_online_and_version(EDC_CTX*, const char*);
 int left_right_str(char*, const int, const char*, const char*);
 int set_led(EDC_CTX* p_ctx, unsigned int conf);
 int read_rfid(EDC_CTX*);
@@ -1226,7 +1228,7 @@ int init(EDC_CTX *p_ctx)
         return kFailure;
     }
 
-    //log1(INFO, kModName, __func__, "Initialize log setup: %s", LOGLEVLE2STR[INFO]);
+    //log1(INFO, kModName, __func__, "Initialize log setup: %s", LOGLEVEL2STR[INFO]);
     if (init_log(p_ctx, DEBUG) != kSuccess)
     {
         log0(ERROR, kModName, __func__, "Can not create log ctx.");
@@ -2579,7 +2581,7 @@ int connect_server(EDC_CTX* p_ctx)
     p_ctx->server_fd = sock;
     p_ctx->connected = kTrue;
 
-    log0(INFO, kModName, __func__, "Sync version information");
+    log1(INFO, kModName, __func__, "Sync version information: %s", kVersion);
     send_len = snprintf(edc_version, kMaxEDCLogLen + 1, "%s\t%s\t%s\n",
             kSyncVerCmd, kVersion, p_ctx->edc_id);
     if (sock_write(p_ctx->server_fd, edc_version, send_len) != send_len)
@@ -3129,7 +3131,8 @@ int idle_state(EDC_CTX *p_ctx)
 
     show_datetime(p_ctx, &time_info);
     show_line(p_ctx, 1, (cur_edc_num==0)?STR_DISABLE:STR_PLEASE_CARD);
-    show_line(p_ctx, 3, cur_connected?STR_ONLINE:STR_OFFLINE);
+    show_online_and_version(p_ctx, cur_connected?STR_ONLINE:STR_OFFLINE);
+    //show_line(p_ctx, 3, cur_connected?STR_ONLINE:STR_OFFLINE);
 
     update_check_epoch = time(NULL);
     snprintf(update_check_file, kMaxPathLen, "%s/%s%s",
@@ -3252,7 +3255,8 @@ int idle_state(EDC_CTX *p_ctx)
         if (cur_connected != p_ctx->connected)
         {
             cur_connected = p_ctx->connected;
-            show_line(p_ctx, 3, cur_connected?STR_ONLINE:STR_OFFLINE);
+            show_online_and_version(p_ctx, cur_connected?STR_ONLINE:STR_OFFLINE);
+            //show_line(p_ctx, 3, cur_connected?STR_ONLINE:STR_OFFLINE);
         }
 
         get_current_time_r(&time_info);
@@ -4391,6 +4395,7 @@ int setup_state(EDC_CTX* p_ctx)
     //TODO so dirty here...
     while (kTrue)
     {
+        //log1(DEBUG, kModName, __func__, "Into setup %s", LOGLEVEL2STR[state]);
         switch (state)
         {
             case SET_PRT_TYPE:
@@ -4641,7 +4646,7 @@ int setup_state(EDC_CTX* p_ctx)
                 ret = fprintf(fp_setup, "%s=%d\n%s=%d\n%s=%s\n%s=%d\n%s=%s\n%s=%s\n",
                         kSetupStrPRTCON, new_prt_con_type,
                         kSetupStrReaderMode, new_reader_mode,
-                        kSetupStrServerIP, new_server_ip,
+                        kSetupStrServerIP, p_ctx->server_ip,
                         kSetupStrServerPort, new_server_port,
                         kSetupStrEDCID, new_edc_id,
                         kSetupStrFnPasswd, new_fn_passwd);
@@ -4661,9 +4666,9 @@ int setup_state(EDC_CTX* p_ctx)
                     return kFailure;
                 }
                 ret = fprintf(fp_network, "%s=%s\n%s=%s\n%s=%s\n",
-                        kSetupSelfIP, new_edc_ip,
-                        kSetupSubmask, new_submask,
-                        kSetupGateway, new_gateway);
+                        kSetupSelfIP, p_ctx->edc_ip,
+                        kSetupSubmask, p_ctx->submask,
+                        kSetupGateway, p_ctx->gateway);
                 if (ret < 0)
                 {
                     log1(ERROR, kModName, __func__,
@@ -4931,6 +4936,25 @@ int get_current_time_r(struct tm* p_time_info)
     localtime_r(&cur_time, p_time_info);
 
     return kSuccess;
+}
+
+int show_online_and_version(EDC_CTX* p_ctx, const char* conn_status)
+{
+    char line_str[kMaxLineWord + 1];
+
+    if (!p_ctx)
+    {
+        log0(ERROR, kModName, __func__, "Parameter Fail!");
+        return kFailure;
+    }
+
+    if (left_right_str(line_str, kMaxLineWord + 1, conn_status, EDC_CLIENT_VERSION))
+    {
+        log0(ERROR, kModName, __func__, "EDC versino and on-line status is too long");
+        return kFailure;
+    }
+
+    return show_line(p_ctx, 3, line_str);
 }
 
 int show_datetime(EDC_CTX* p_ctx, struct tm* p_time_info)

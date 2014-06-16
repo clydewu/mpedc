@@ -17,9 +17,7 @@ EDC_LOG="EDCClient.log"
 # Check if EDCClient alive
 pid_list=(`pidof $EDC_BIN`)
 pid_amount=${#pid_list[@]}
-if [ $pid_amount -gt $EDC_MIN_THREAD ]; then
-    echo "EDC is running"
-else
+if [  $pid_amount -lt $EDC_MIN_THREAD ]; then
     echo "EDC is dead"
 
     # Make it dead completed
@@ -30,6 +28,7 @@ else
     if [ -z "$EDC_UPDATE_FILE" ]; then
         echo "no update archive file"
     else
+        date
         rm "$EDC_UPDATE_OK"
 
         # Decompress new version
