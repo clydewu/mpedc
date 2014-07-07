@@ -24,7 +24,7 @@ namespace EDCServer
         public TcpServer(Config config, Form1 frm)
         {
             this.connectClient = new List<TcpClient>();
-            this.sqlConnStr = String.Format("Data Source={0};User Id={2}; Password={3}; Initial Catalog={1}",
+            this.sqlConnStr = String.Format("Data Source={0};User Id={2}; Password={3}; Initial Catalog={1}; Max Pool Size=200; Pooling=true;Min Pool Size=5",
                 config.source, config.db, config.user, config.password);
             this.serverfrm = frm;   
             this.port = config.port;
@@ -281,6 +281,7 @@ namespace EDCServer
                 sql_conn.Open();
                 using (SqlCommand sql_cmd = new SqlCommand("sp_SyncEDCInfo", sql_conn))
                 {
+                    sql_cmd.CommandTimeout = 0;
                     sql_cmd.CommandType = CommandType.StoredProcedure;
                     sql_cmd.Parameters.Add("@state", SqlDbType.VarChar, 20).Value = "get_sync_emp";
                     sql_cmd.Parameters.Add("@EDCNO", SqlDbType.VarChar, 50).Value = plist[1];
@@ -323,6 +324,7 @@ namespace EDCServer
                 sql_conn.Open();
                 using (SqlCommand sql_cmd = new SqlCommand("sp_SyncEDCInfo", sql_conn))
                 {
+                    sql_cmd.CommandTimeout = 0;
                     sql_cmd.CommandType = CommandType.StoredProcedure;
                     sql_cmd.Parameters.Add("@state", SqlDbType.VarChar, 20).Value = "get_sync_prj";
                     sql_cmd.Parameters.Add("@EDCNO", SqlDbType.VarChar, 50).Value = plist[1];
@@ -350,6 +352,7 @@ namespace EDCServer
                 sql_conn.Open();
                 using (SqlCommand sql_cmd = new SqlCommand("sp_SyncEDCInfo", sql_conn))
                 {
+                    sql_cmd.CommandTimeout = 0;
                     sql_cmd.CommandType = CommandType.StoredProcedure;
                     sql_cmd.Parameters.Add("@state", SqlDbType.VarChar, 20).Value = "del_sync_emp";
                     sql_cmd.Parameters.Add("@EDCNO", SqlDbType.VarChar, 50).Value = plist[1];
@@ -382,6 +385,7 @@ namespace EDCServer
                 sql_conn.Open();
                 using (SqlCommand sql_cmd = new SqlCommand("sp_SyncEDCInfo", sql_conn))
                 {
+                    sql_cmd.CommandTimeout = 0;
                     sql_cmd.CommandType = CommandType.StoredProcedure;
                     sql_cmd.Parameters.Add("@state", SqlDbType.VarChar, 20).Value = "del_sync_prj";
                     sql_cmd.Parameters.Add("@EDCNO", SqlDbType.VarChar, 50).Value = plist[1];
@@ -412,6 +416,7 @@ namespace EDCServer
                 sql_conn.Open();
                 using (SqlCommand sql_cmd = new SqlCommand(sql_select, sql_conn))
                 {
+                    sql_cmd.CommandTimeout = 0;
                     sql_cmd.CommandType = System.Data.CommandType.Text;
                     using (SqlDataReader sql_reader = sql_cmd.ExecuteReader())
                     {
@@ -449,6 +454,7 @@ namespace EDCServer
                 sql_conn.Open();
                 using (SqlCommand sql_cmd = new SqlCommand(sql_str, sql_conn))
                 {
+                    sql_cmd.CommandTimeout = 0;
                     sql_cmd.CommandType = System.Data.CommandType.Text;
                     using (SqlDataReader sql_reader = sql_cmd.ExecuteReader())
                     {
@@ -490,6 +496,7 @@ namespace EDCServer
                     sql_cmd.CommandType = System.Data.CommandType.Text;
                     using (SqlDataAdapter sql_adapter = new SqlDataAdapter(sql_cmd))
                     {
+                        sql_cmd.CommandTimeout = 0;
                         sql_adapter.Fill(edc_dataset, "EDC");
                     }
                 }
@@ -595,6 +602,7 @@ namespace EDCServer
                 sql_conn.Open();
                 using (SqlCommand sql_update = new SqlCommand("UPDATE [dbo].[DataEDC] SET [EDCVer] = @edc_ver WHERE [EDCNO] = @edc_no", sql_conn))
                 {
+                    sql_update.CommandTimeout = 0;
                     sql_update.Parameters.AddWithValue("@edc_ver", edc_version);
                     sql_update.Parameters.AddWithValue("@edc_no", edc_no);
                     sql_update.CommandType = System.Data.CommandType.Text;
@@ -662,6 +670,7 @@ namespace EDCServer
                         EDCLOG edc_log = parse_log(recv_list[i].Trim());
                         using (SqlCommand sql_insert_log = new SqlCommand("INSERT INTO [dbo].[EDCLogTmp] (EDCLog) VALUES (@edc_log)", sql_conn))
                         {
+                            sql_insert_log.CommandTimeout = 0;
                             sql_insert_log.Parameters.Add(C.kFieldEDCLog, SqlDbType.NVarChar);
                             sql_insert_log.Parameters[C.kFieldEDCLog].Value = recv_list[i].Trim();
                             sql_insert_log.CommandType = System.Data.CommandType.Text;

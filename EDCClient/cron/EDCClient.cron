@@ -4,4 +4,4 @@
 0 0 * * * root find /mnt/mmc/EDClog/ -type f -name "*.log" | xargs gzip &> /dev/null
 # Delete backup log which is older than 7 Day every day
 30 0 * * * root find /mnt/mmc/EDClog/ -type f -name "*.log.gz" -mtime +7 | xargs rm  &> /dev/null
-* * * * * root /bin/bash -x /home/EDC/watchdog.sh  >> /home/EDC/EDCUpdate.log 2>&1
+* * * * * root /home/EDC/watchdog.sh  >> /home/EDCUpdate/EDCUpdate.log 2>&1

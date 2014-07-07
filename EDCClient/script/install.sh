@@ -15,6 +15,7 @@ mv cron /mnt/disk
 chmod 4755 /mnt/disk/cron
 mv EDCClient.cron /etc/crontab
 chmod 644 /etc/crontab
+mkdir -p /etc/cron.d/
 
 # Set localtime file
 mv localtime /etc

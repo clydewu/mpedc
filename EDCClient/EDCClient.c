@@ -18,7 +18,7 @@
 #include "lib/matrix500.h"
 #include "lib/libmpedc.h"
 
-#define EDC_CLIENT_VERSION  "1.13"
+#define EDC_CLIENT_VERSION  "1.17c"
 #define MAX_COM_PORT_LEN    (64)
 #define MAX_COM_CMD_BUFFER  (9)
 #define MAX_PROJECT_LEN     (4)
@@ -1281,7 +1281,7 @@ int init(EDC_CTX *p_ctx)
     p_ctx->lkp_ctx = lkp_create();
     if (!p_ctx->lkp_ctx)
     {
-        log0(ERROR, kModName, __func__, "Can not create lkp contexet.");
+        log0(ERROR, kModName, __func__, "Can not create lkp context.");
         return kFailure;
     }
 
@@ -1296,7 +1296,7 @@ int init(EDC_CTX *p_ctx)
     if (load_com_setting(&p_ctx->com_ctx,
                 kDefINIFile) != kSuccess)
     {
-        log0(ERROR, kModName, __func__, "Can not create com contexet.");
+        log0(ERROR, kModName, __func__, "Can not load com contexet.");
         return kFailure;
     }
 
@@ -3551,7 +3551,7 @@ int quota_state(EDC_CTX* p_ctx)
     char remain_sec_str[kMaxLineWord + 1];
     char remain_line[kMaxLineWord + 1];
     char edc_log[kMaxEDCLogLen];
-    char init_cmd[kMaxCommandLen + 1];
+    //char init_cmd[kMaxCommandLen + 1];
     EMP_DATA *curr_emp;
     EDC_DATA *curr_edc;
     int start_epoch;
@@ -3633,6 +3633,7 @@ int quota_state(EDC_CTX* p_ctx)
         return kFailure;
     }
 
+    /*
     if (p_ctx->prt_con_type == 0)
     {
         snprintf(init_cmd, kMaxCommandLen + 1, "%s -%s %d %d",
@@ -3647,6 +3648,7 @@ int quota_state(EDC_CTX* p_ctx)
     }
     else
     {
+    */
         //log2(DEBUG, kModName, __func__, "Set COM%d, only mono:%d",
         //            p_ctx->prt_con_type, curr_emp->only_mono);
         if (ptr_select(p_ctx->prt_con_type, curr_emp->only_mono) < kSuccess)
@@ -3662,7 +3664,7 @@ int quota_state(EDC_CTX* p_ctx)
             log0(ERROR, kModName, __func__, "Initial print counter failure");
             return kFailure;
         }
-    }
+    //}
 
     start_epoch = time(NULL);
     curr_epoch = time(NULL);
@@ -3820,6 +3822,8 @@ int quota_state(EDC_CTX* p_ctx)
     usleep(kMicroPerSecond * kWaitSecDoubleBuzzer);
     buzzer(kMicroPerSecond * kBuzzerShort); 
     usleep(kMicroPerSecond * kWaitSecStopPtrCount);
+
+    /*
     if (p_ctx->prt_con_type == 0)
     {
         //outside executable
@@ -3834,12 +3838,13 @@ int quota_state(EDC_CTX* p_ctx)
     }
     else
     {
+    */
         if (ptr_count_stop(p_ctx->lkp_ctx) < kSuccess)
         {
             log0(ERROR, kModName, __func__, "Stop print counter failure");
             return kFailure;
         }
-    }
+    //}
 
     snprintf(edc_log, kMaxEDCLogLen, (enject_or_timeout==1)?PTN_CARD_ENJECT:PTN_CARD_TIMEOUT,
             p_ctx->curr_card_sn);
