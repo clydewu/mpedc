@@ -18,7 +18,7 @@
 #include "lib/matrix500.h"
 #include "lib/libmpedc.h"
 
-#define EDC_CLIENT_VERSION  "1.17d"
+#define EDC_CLIENT_VERSION  "1.18"
 #define MAX_COM_PORT_LEN    (64)
 #define MAX_COM_CMD_BUFFER  (9)
 #define MAX_PROJECT_LEN     (4)
@@ -189,6 +189,7 @@ const char kYmdHMS[] = "%.4d-%.2d-%.2d %.2d:%.2d:%.2d";
 const char kYmdHMS_NS[] = "%.4d%.2d%.2d%.2d%.2d%.2d";
 
 const float kWaitSecScanKey = 0.2;
+const float kWaitSecInitWait = 0.2;
 const float kWaitSecReadComPort = 0.1;
 const float kWaitSecDoubleBuzzer = 0.2;
 const float kWaitSecStopPtrCount = 0.2;
@@ -3635,6 +3636,7 @@ int quota_state(EDC_CTX* p_ctx)
 
     if (p_ctx->prt_con_type == 0)
     {
+        /* 2014/07/11, Fong suggest re-init lkp instead of muliple process
         snprintf(init_cmd, kMaxCommandLen + 1, "%s -%s %d %d",
                 kInitCmd, kInitArgInit, p_ctx->prt_con_type, curr_emp->only_mono);
         //outside executable
@@ -3644,24 +3646,34 @@ int quota_state(EDC_CTX* p_ctx)
             log0(ERROR, kModName, __func__, "Rue executable to initialize counter failure.");
             return kFailure;
         }
-    }
-    else
-    {
-        //log2(DEBUG, kModName, __func__, "Set COM%d, only mono:%d",
-        //            p_ctx->prt_con_type, curr_emp->only_mono);
-        if (ptr_select(p_ctx->prt_con_type, curr_emp->only_mono) < kSuccess)
-        {
-            log2(INFO, kModName, __func__,
-                    "Set COM port printer failure: COM%d, only_mono: %d",
-                    p_ctx->prt_con_type, curr_emp->only_mono);
-        }
+        */
 
-        // Init print, start to statistic
-        if (ptr_count_init(p_ctx->lkp_ctx) < kSuccess)
+        log0(DEBUG, kModName, __func__, "Re-Initialize main context for GPIO printer");
+        lkp_release(p_ctx->lkp_ctx);
+
+        usleep(kMicroPerSecond * kWaitSecInitWait);
+
+        p_ctx->lkp_ctx = lkp_create();
+        if (!p_ctx->lkp_ctx)
         {
-            log0(ERROR, kModName, __func__, "Initial print counter failure");
+            log0(ERROR, kModName, __func__, "Can not create lkp context.");
             return kFailure;
         }
+    }
+        //log2(DEBUG, kModName, __func__, "Set COM%d, only mono:%d",
+        //            p_ctx->prt_con_type, curr_emp->only_mono);
+    if (ptr_select(p_ctx->prt_con_type, curr_emp->only_mono) < kSuccess)
+    {
+        log2(INFO, kModName, __func__,
+                "Set COM port printer failure: COM%d, only_mono: %d",
+                p_ctx->prt_con_type, curr_emp->only_mono);
+    }
+
+    // Init print, start to statistic
+    if (ptr_count_init(p_ctx->lkp_ctx) < kSuccess)
+    {
+        log0(ERROR, kModName, __func__, "Initial print counter failure");
+        return kFailure;
     }
 
     start_epoch = time(NULL);
