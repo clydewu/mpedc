@@ -558,6 +558,7 @@ void quit(EDC_CTX*);
 int get_current_time_r(struct tm* p_time_info);
 int show_datetime(EDC_CTX* p_ctx, struct tm* p_time_info);
 int show_line(EDC_CTX*, int, const char*);
+int clean_lcd(EDC_CTX *p_ctx);
 int show_online_and_version(EDC_CTX*, const char*);
 int left_right_str(char*, const int, const char*, const char*);
 int set_led(EDC_CTX* p_ctx, unsigned int conf);
@@ -621,8 +622,8 @@ int get_remote_list(EDC_CTX*,const char*,const char*, pthread_mutex_t*);
 
 // Thread
 int stop_sync_thr(EDC_CTX*);
-void sync_thr_func(void *ctx);
 void sync_log_thr_func(void *ctx);
+void sync_list_thr_func(void* ctx);
 void log_thr_func();
 
 // Log Utilities
@@ -659,15 +660,9 @@ int main(void)
         goto INIT_FAIL;
     }
 
-    if(lcd_clean_scr(ctx.lkp_ctx) < kSuccess)
+    if (clean_lcd(&ctx) < kSuccess)
     {
-        log0(FATAL, kModName, __func__, "Can not clean screen.");
-        goto INIT_FAIL;
-    }
-
-    if(lcd_clean(ctx.lkp_ctx) < kSuccess)
-    {
-        log0(FATAL, kModName, __func__, "Can not clean screen buffer.");
+        log0(FATAL, kModName, __func__, "Clean LCD failure.");
         goto INIT_FAIL;
     }
 
@@ -3092,15 +3087,9 @@ int idle_state(EDC_CTX *p_ctx)
         return kFailure;
     }
 
-    if (lcd_clean_scr(p_ctx->lkp_ctx) < kSuccess)
+    if (clean_lcd(p_ctx) < kSuccess)
     {
-        log0(ERROR, kModName, __func__, "Can not clean screen.");
-        return kFailure;
-    }
-
-    if (lcd_clean(p_ctx->lkp_ctx) < kSuccess)
-    {
-        log0(ERROR, kModName, __func__, "Can not clean screen buffer.");
+        log0(FATAL, kModName, __func__, "Clean LCD failure.");
         return kFailure;
     }
 
@@ -3287,15 +3276,9 @@ int invalid_card_state(EDC_CTX *p_ctx)
         return kFailure;
     }
 
-    if(lcd_clean_scr(p_ctx->lkp_ctx) < kSuccess)
+    if (clean_lcd(p_ctx) < kSuccess)
     {
-        log0(ERROR, kModName, __func__, "Can not clean screen.");
-        return kFailure;
-    }
-
-    if(lcd_clean(p_ctx->lkp_ctx) < kSuccess)
-    {
-        log0(ERROR, kModName, __func__, "Can not clean screen buffer.");
+        log0(FATAL, kModName, __func__, "Clean LCD failure.");
         return kFailure;
     }
 
@@ -3620,7 +3603,6 @@ int quota_state(EDC_CTX* p_ctx)
         return kFailure;
     }
 
-
     snprintf(edc_log, kMaxEDCLogLen, PTN_CARD_VALID, p_ctx->curr_card_sn);
     if (append_edc_log(p_ctx, CARD, edc_log) != kSuccess)
     {
@@ -3628,26 +3610,9 @@ int quota_state(EDC_CTX* p_ctx)
         return kFailure;
     }
 
-    if (show_quota_info(p_ctx, curr_quota, gb, gs, go, cb, cs, co) != kSuccess)
-    {
-        log0(ERROR, kModName, __func__, "Show quota screen failure");
-        return kFailure;
-    }
-
     if (p_ctx->prt_con_type == 0)
     {
-        /* 2014/07/11, Fong suggest re-init lkp instead of muliple process
-        snprintf(init_cmd, kMaxCommandLen + 1, "%s -%s %d %d",
-                kInitCmd, kInitArgInit, p_ctx->prt_con_type, curr_emp->only_mono);
-        //outside executable
-        log1(DEBUG, kModName, __func__, "Command: '%s'", init_cmd);
-        if (system(init_cmd) != kSuccess)
-        {
-            log0(ERROR, kModName, __func__, "Rue executable to initialize counter failure.");
-            return kFailure;
-        }
-        */
-
+        // 2014/07/11, Fong suggest re-init lkp instead of muliple process
         log0(DEBUG, kModName, __func__, "Re-Initialize main context for GPIO printer");
         lkp_release(p_ctx->lkp_ctx);
 
@@ -3660,8 +3625,9 @@ int quota_state(EDC_CTX* p_ctx)
             return kFailure;
         }
     }
-        //log2(DEBUG, kModName, __func__, "Set COM%d, only mono:%d",
-        //            p_ctx->prt_con_type, curr_emp->only_mono);
+
+    //log2(DEBUG, kModName, __func__, "Set COM%d, only mono:%d",
+    //            p_ctx->prt_con_type, curr_emp->only_mono);
     if (ptr_select(p_ctx->prt_con_type, curr_emp->only_mono) < kSuccess)
     {
         log2(INFO, kModName, __func__,
@@ -3673,6 +3639,12 @@ int quota_state(EDC_CTX* p_ctx)
     if (ptr_count_init(p_ctx->lkp_ctx) < kSuccess)
     {
         log0(ERROR, kModName, __func__, "Initial print counter failure");
+        return kFailure;
+    }
+
+    if (show_quota_info(p_ctx, curr_quota, gb, gs, go, cb, cs, co) != kSuccess)
+    {
+        log0(ERROR, kModName, __func__, "Show quota screen failure");
         return kFailure;
     }
 
@@ -4223,15 +4195,9 @@ int passwd_state(EDC_CTX* p_ctx)
         return kFailure;
     }
 
-    if (lcd_clean_scr(p_ctx->lkp_ctx) < kSuccess)
+    if (clean_lcd(p_ctx) < kSuccess)
     {
-        log0(ERROR, kModName, __func__, "Can not clean screen.");
-        return kFailure;
-    }
-
-    if (lcd_clean(p_ctx->lkp_ctx) < kSuccess)
-    {
-        log0(ERROR, kModName, __func__, "Can not clean screen buffer.");
+        log0(FATAL, kModName, __func__, "Clean LCD failure.");
         return kFailure;
     }
 
@@ -4352,15 +4318,9 @@ int setup_state(EDC_CTX* p_ctx)
     }
 
     // Clean screen and set LED
-    if(lcd_clean_scr(p_ctx->lkp_ctx) < kSuccess)
+    if (clean_lcd(p_ctx) < kSuccess)
     {
-        log0(ERROR, kModName, __func__, "Can not clean screen.");
-        return kFailure;
-    }
-
-    if(lcd_clean(p_ctx->lkp_ctx) < kSuccess)
-    {
-        log0(ERROR, kModName, __func__, "Can not clean screen buffer.");
+        log0(FATAL, kModName, __func__, "Clean LCD failure.");
         return kFailure;
     }
 
@@ -5081,6 +5041,7 @@ int set_backlight(EDC_CTX* p_ctx, unsigned char u8_type)
     return kSuccess;
 }
 
+
 int left_right_str(char *buf, const int buf_size, const char *left, const char * right)
 {
     int spaces = buf_size - strlen(left) - strlen(right) - 1;
@@ -5179,6 +5140,61 @@ int show_line(EDC_CTX *p_ctx, int line, const char *string)
         {
             log2(ERROR, kModName, __func__,
                     "Print out LCD error, str: '%s', ret: %d", string, ret);
+            if (++failure_count > kMaxFailLimit)
+            {
+                result = kFailure;
+                break;
+            }
+            usleep(kMicroPerSecond * kWaitDeviceFail);
+            continue;
+        }
+
+        result = kSuccess;
+        break;
+    }
+
+    if (pthread_mutex_unlock(&p_ctx->lkp_ctx_mutex))
+    {
+        log0(ERROR, kModName, __func__, "Unlock lkp_ctx mutex failure!");
+        return kFailure;
+    }
+
+    return result;
+}
+
+int clean_lcd(EDC_CTX *p_ctx)
+{
+    int ret = 0;
+    int result = kFailure;
+    int failure_count = 0;
+
+    if (pthread_mutex_lock(&p_ctx->lkp_ctx_mutex))
+    {
+        log0(ERROR, kModName, __func__, "Lock lkp_ctx mutex failure!");
+        return kFailure;
+    }
+
+    while (kTrue)
+    {
+        ret = lcd_clean_scr(p_ctx->lkp_ctx);
+        if (ret < kSuccess)
+        {
+            log1(ERROR, kModName, __func__,
+                    "Clean screen error, ret: %d", ret);
+            if (++failure_count > kMaxFailLimit)
+            {
+                result = kFailure;
+                break;
+            }
+            usleep(kMicroPerSecond * kWaitDeviceFail);
+            continue;
+        }
+
+        ret = lcd_clean(p_ctx->lkp_ctx);
+        if (ret < kSuccess)
+        {
+            log1(ERROR, kModName, __func__,
+                    "Clean LCD error, ret: %d", ret);
             if (++failure_count > kMaxFailLimit)
             {
                 result = kFailure;
