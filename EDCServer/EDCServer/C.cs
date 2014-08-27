@@ -17,6 +17,8 @@ namespace EDCServer
         public const string kSyncEmpDeltaOkCmd = "SYNC_EMP_DELTA_OK";
         public const string kSyncEDCDeltaOkCmd = "SYNC_EDC_DELTA_OK";
         public const string kSyncProjDeltaOkCmd = "SYNC_PROJ_DELTA_OK";
+        public const string kSyncLogOKCmd = "SYNC_LOG_OK";
+        public const string kSyncLogDupCmd = "SYNC_LOG_DUP";
 
         public const string kFieldEDCID = "@edc_id";
         public const string kFieldEDCVER = "@edc_ver";
@@ -50,5 +52,8 @@ namespace EDCServer
         public string emp_no;
         public string log_time;
         public string content;
+
+        public string log_time_YmdHMS;
+        public string log_time_ms;
     }
 }

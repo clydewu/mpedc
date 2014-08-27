@@ -212,7 +212,7 @@ namespace EDCServer
                                 //EventLog.WriteEntry("EDCAgent", "Client thread send:" + send_str, EventLogEntryType.Information);
                                 break;
                             case C.kSyncLogCmd:
-                                sync_edc_log(command);
+                                sync_edc_log(command, clientStream);
                                 break;
                             case C.kSyncEmpDeltaCmd:
                                 send_str = get_emp_delta(cmd_tokens);
@@ -220,7 +220,7 @@ namespace EDCServer
                                 System.Diagnostics.Debug.WriteLine(send_str);
                                 //TODO write error check
                                 clientStream.Write(send_buf, 0, send_buf.Length);
-                                   clientStream.Flush();
+                                clientStream.Flush();
                                 break;
                             case C.kSyncEDCDeltaCmd:
                                 break;
@@ -654,10 +654,14 @@ namespace EDCServer
         }
 
 
-        private void sync_edc_log(string recv)
+        private void sync_edc_log(string recv, NetworkStream clientStream)
         {
             string[] recv_list;
             recv_list = recv.Split('\n');
+            ASCIIEncoding encoder = new ASCIIEncoding();
+            string send_str;
+            byte[] send_buf;
+            DataSet edc_archive = new DataSet();
 
             using (SqlConnection sql_conn = new SqlConnection(this.sqlConnStr))
             {
@@ -668,6 +672,29 @@ namespace EDCServer
                     if (recv_list[i].Trim().Length != 0)
                     {
                         EDCLOG edc_log = parse_log(recv_list[i].Trim());
+                        //Check This log is not exist in EDCLogArchive by time.
+                        using (SqlCommand sql_check_existen_log = new SqlCommand("SELECT SEQ FROM [dbo].[EDCLogArchive] WHERE [DT_STRING] = @dt", sql_conn))
+                        {
+                            sql_check_existen_log.CommandType = System.Data.CommandType.Text;
+                             sql_check_existen_log.Parameters.Add("@dt", SqlDbType.VarChar).Value = edc_log.log_time;
+                            using (SqlDataAdapter sql_adapter = new SqlDataAdapter(sql_check_existen_log))
+                            {
+                                sql_adapter.Fill(edc_archive);
+
+                                if (edc_archive.Tables[0].Rows.Count != 0)
+                                {
+                                    EventLog.WriteEntry("EDCAgent", "Receive duplicate EDCLOG!", EventLogEntryType.Error);
+                                    send_str = C.kSyncLogDupCmd;
+                                    send_str = send_str.Length.ToString() + "|" + send_str;
+                                    send_buf = encoder.GetBytes(send_str);
+
+                                    clientStream.Write(send_buf, 0, send_buf.Length);
+                                    clientStream.Flush();
+                                    continue;
+                                }
+                            }
+                        }
+
                         using (SqlCommand sql_insert_log = new SqlCommand("INSERT INTO [dbo].[EDCLogTmp] (EDCLog) VALUES (@edc_log)", sql_conn))
                         {
                             sql_insert_log.CommandTimeout = 0;
@@ -692,7 +719,7 @@ namespace EDCServer
                                 //TODO Exception here!!!其他資訊: 索引在陣列的界限之外。
                                 //getdate()改用edc_log.log_time寫入EDC的時間
                                 string sql_insert_pq = string.Format("INSERT INTO [dbo].[PQCardInfo] (EDCNO, CardNumber, UserNumber, ProjectNO, CardDT)" +
-                                    "VALUES ('{0}', '{1}', '{2}', '{3}', '{4}')", edc_log.edc_no, content_token[1], edc_log.emp_no, edc_log.project_no, edc_log.log_time);
+                                    "VALUES ('{0}', '{1}', '{2}', '{3}', '{4}')", edc_log.edc_no, content_token[1], edc_log.emp_no, edc_log.project_no, edc_log.log_time_YmdHMS);
                                 using (SqlCommand cmd_Insert_pq = new SqlCommand(sql_insert_pq, sql_conn))
                                 {
                                     cmd_Insert_pq.CommandType = System.Data.CommandType.Text;
@@ -714,7 +741,7 @@ namespace EDCServer
                             {
                                 string sql_insert_cc = string.Format("INSERT INTO [dbo].[CopyCount] (EDCNO, ProjectNO, UserNumber, PrintType, PrintCount, UseDT)" +
                                         "VALUES ('{0}', '{1}', '{2}', '{3}', '{4}', '{5}')",
-                                        edc_log.edc_no, edc_log.project_no, edc_log.emp_no, usage.Key, usage.Value, edc_log.log_time);
+                                        edc_log.edc_no, edc_log.project_no, edc_log.emp_no, usage.Key, usage.Value, edc_log.log_time_YmdHMS);
                                 //MessageBox.Show(sql_insert_cc);
                                 using (SqlCommand cmd_insert_cc = new SqlCommand(sql_insert_cc, sql_conn))
                                 {
@@ -733,7 +760,7 @@ namespace EDCServer
                         else if (edc_log.type == "SCAN")
                         {
                             string sql_scan = string.Format("INSERT INTO [dbo].[SEFScanInfo] (EDCNO, UserNumber, ProjectNo, ScanDT)" +
-                                "VALUES ( '{0}', '{1}', '{2}', '{3}')", edc_log.edc_no, edc_log.emp_no, edc_log.project_no, edc_log.log_time);
+                                "VALUES ( '{0}', '{1}', '{2}', '{3}')", edc_log.edc_no, edc_log.emp_no, edc_log.project_no, edc_log.log_time_YmdHMS);
                             using (SqlCommand cmd_scan = new SqlCommand(sql_scan, sql_conn))
                             {
                                 cmd_scan.CommandType = System.Data.CommandType.Text;
@@ -747,6 +774,14 @@ namespace EDCServer
                                 }
                             }
                         }
+
+                        // Send sync OK to client, EDCClient will drop log until this SYNC_LOG_OK
+                        send_str = C.kSyncLogOKCmd;
+                        send_str = send_str.Length.ToString() + "|" + send_str;
+                        send_buf = encoder.GetBytes(send_str);
+
+                        clientStream.Write(send_buf, 0, send_buf.Length);
+                        clientStream.Flush();
                     }
                 }
             }
@@ -758,12 +793,17 @@ namespace EDCServer
         {
             EDCLOG edc_log = new EDCLOG();
             string[] token = log.Split('\t');
+            List<string> time_token = new List<string>(token[4].Split(':'));
 
             edc_log.type = token[0];
             edc_log.edc_no = token[1];
             edc_log.project_no = token[2];
             edc_log.emp_no = token[3];
             edc_log.log_time = token[4];
+
+            edc_log.log_time_ms = time_token[time_token.Count - 1];
+            time_token.RemoveAt(time_token.Count -1);
+            edc_log.log_time_YmdHMS = string.Join(":", time_token);
 
             edc_log.content = (token.Length > 5)?token[5]:"";
             return edc_log;

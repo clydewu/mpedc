@@ -7,6 +7,7 @@
 #include <unistd.h>
 #include <termios.h>
 #include <sys/ioctl.h>
+#include <sys/time.h>
 #include <netdb.h>
 #include <pthread.h>
 #include <sys/types.h>
@@ -124,6 +125,7 @@ const char kEmpListFile[] = "./employee.list";
 const char kEDCListFile[] = "./edc.list";
 const char kProjListFile[] = "./projects.list";
 const char kEDCLogFile[] = "./edc_tmp.log";
+const char kEDCTempLogFile[] = "./edc_tmp.log.tmp";
 const char kServerIni[] = "./edc_setup.conf";
 const char kNetworkIni[] = "./edc_network.conf";
 const char kSetupIpCmd[] = "./edc_net_setup.sh ./edc_network.conf";
@@ -170,6 +172,7 @@ const int kMaxLogTypeLen = MAX_LOG_TYPE_LEN;
 const int kMaxStateLen = MAX_STATE_LEN;
 const int kMaxHeaderLen= 16;
 const int kMaxYmdHMSLen = 20;
+const int kMaxYmdHMSMSLen = 26;
 const int kASCIIFn = 16;
 const int kASCIIUp = 17;
 const int kASCIIDown = 18;
@@ -187,6 +190,7 @@ const int kMaxLogLen = 8192;
 const int kMaxLogFileSize = 1024 * 1024; //5M
 const char kYmdHMS[] = "%.4d-%.2d-%.2d %.2d:%.2d:%.2d";
 const char kYmdHMS_NS[] = "%.4d%.2d%.2d%.2d%.2d%.2d";
+const char kYmdHMS_MS[] = "%.4d-%.2d-%.2d %.2d:%.2d:%.2d:%.6ld";
 
 const float kWaitSecScanKey = 0.2;
 const float kWaitSecInitWait = 0.2;
@@ -271,6 +275,8 @@ const char kSyncEmpDeltaOKCmd[] = "SYNC_EMP_DELTA_OK";
 const char kSyncEdcDeltaOKCmd[] = "SYNC_EDC_DELTA_OK";
 const char kSyncProjDeltaOKCmd[] = "SYNC_PROJ_DELTA_OK";
 const char kSyncLogCmd[] = "SYNC_LOG";
+const char kSyncLogOKCmd[] = "SYNC_LOG_OK";
+const char kSyncLogDupCmd[] = "SYNC_LOG_DUP";
 const char kHeartBeat[] = "HEARTBEAT";
 const int kMaxListLine = MAX_LIST_LEN;
 const int kMaxEmpListBuf = (MAX_EMP_LIST_SIZE * MAX_LIST_LEN);
@@ -526,10 +532,6 @@ typedef struct _edc_ctx
     pthread_t       log_thr;
 } EDC_CTX;
 
-
-
-
-
 // COM Module
 int serOpenCOM(COM_CTX*);
 int serCloseCOM(COM_CTX*);
@@ -557,18 +559,18 @@ int init(EDC_CTX *p_ctx);
 void quit(EDC_CTX*);
 int get_current_time_r(struct tm* p_time_info);
 int show_datetime(EDC_CTX* p_ctx, struct tm* p_time_info);
-int show_line(EDC_CTX*, int, const char*);
+int show_line(EDC_CTX *p_ctx, int line, const char *string);
 int clean_lcd(EDC_CTX *p_ctx);
-int show_online_and_version(EDC_CTX*, const char*);
-int left_right_str(char*, const int, const char*, const char*);
+int show_online_and_version(EDC_CTX* p_ctx, const char* conn_status);
+int left_right_str(char *buf, const int buf_size, const char *left, const char * right);
 int set_led(EDC_CTX* p_ctx, unsigned int conf);
-int read_rfid(EDC_CTX*);
-int is_valid_card(EDC_CTX*);
-int buzzer(int);
-int get_str_from_keypad(EDC_CTX*, const char*, char*, const int, const int);
-int get_ipv4_from_keypad(EDC_CTX*, const char*, char*, const int, const int);
-int load_server_set(EDC_CTX*, const char*);
-int load_network_set(EDC_CTX*, const char*);
+int read_rfid(EDC_CTX *p_ctx);
+int is_valid_card(EDC_CTX *p_ctx);
+int buzzer(int msec);
+int get_str_from_keypad(EDC_CTX *p_ctx, const char* prompt, char *buf, const int buf_len, const int scr_line);
+int get_ipv4_from_keypad(EDC_CTX *p_ctx, const char* prompt, char *buf, const int buf_len, const int scr_line);
+int load_server_set(EDC_CTX *p_ctx, const char *ini_file);
+int load_network_set(EDC_CTX *p_ctx, const char *ini_file);
 int set_backlight(EDC_CTX* p_ctx, unsigned char u8_type);
 int show_quota_info(EDC_CTX *p_ctx, int quota, int gb, int gs, int go, int cb, int cs, int co);
 int trim_ipv4(char* tmp_ip, const int tmp_len, char* ipv4, const int len);
@@ -598,6 +600,7 @@ int sync_log(EDC_CTX*);
 int save_log_to_local(EDC_CTX*, const char*);
 char* get_cur_YmdHMS(void);
 char* get_cur_YmdHMS_r(char *buf, int buf_len, int no_seperate);
+char* get_cur_YmdHMS_MS_r(char *buf, int buf_len);
 int append_edc_log(EDC_CTX*, const EDC_LOG_TYPE, const char*);
 int gen_cost_log(EDC_CTX*, const EDC_LOG_TYPE, PRINTERTYPE*);
 
@@ -654,12 +657,14 @@ int main(void)
     }
     log0(INFO, kModName, __func__, "===== EDC Client initialize OK =====");
 
+    log0(DEBUG, kModName, __func__, "Set LED down.");
     if (set_led(&ctx, kLEDNone) < kSuccess)
     {
         log0(FATAL, kModName, __func__, "Set LED down failure.");
         goto INIT_FAIL;
     }
 
+    log0(DEBUG, kModName, __func__, "Clean LCD");
     if (clean_lcd(&ctx) < kSuccess)
     {
         log0(FATAL, kModName, __func__, "Clean LCD failure.");
@@ -669,7 +674,7 @@ int main(void)
     log0(INFO, kModName, __func__, "Start main loop");
     while (kTrue)
     {
-        log1(INFO, kModName, __func__, "State change: %s", STATE2STR[ctx.state]);
+        log1(DEBUG, kModName, __func__, "State change: %s", STATE2STR[ctx.state]);
         switch (ctx.state)
         {
         case IDLE:
@@ -697,17 +702,19 @@ int main(void)
 
         if (ret != kSuccess)
         {
+            log2(DEBUG, kModName, __func__, "State function %d ret: %d", ctx.state, ret);
             break;
         }
     }
 INIT_FAIL:
     ret_code = ret;
+    log0(DEBUG, kModName, __func__, "Print error msg to screen.");
     if (show_line(&ctx, 1, (ret == kTerminated)?STR_UPDATE:STR_ERROR) != kSuccess)
     {
-
         log0(ERROR, kModName, __func__, "Can not print error msg to screen.");
     }
 
+    log0(DEBUG, kModName, __func__, "Set LED all down");
     if (set_led(&ctx, kLEDNone) < kSuccess)
     {
         log0(ERROR, kModName, __func__, "Can not set LED.");
@@ -816,6 +823,7 @@ int get_press_key(EDC_CTX* p_ctx, unsigned char* key)
             return kFailure;
         }
 
+        //log1(DEBUG, kModName, __func__, "Fetch press key, count: %d", failure_count);
         ret = kpd_get_keypad(p_ctx->lkp_ctx, key);
 
         if (pthread_mutex_unlock(&p_ctx->lkp_ctx_mutex))
@@ -845,8 +853,6 @@ int get_press_key(EDC_CTX* p_ctx, unsigned char* key)
 void sync_log_thr_func(void *ctx)
 {
     EDC_CTX* p_ctx;
-    int sync_success = kFalse;
-    int ret;
 
     if (!p_ctx)
     {
@@ -861,49 +867,24 @@ void sync_log_thr_func(void *ctx)
         sleep(kSyncLogInterval);
         pthread_testcancel();
 
-        if (p_ctx->connected)
+        if (p_ctx->connected == kFalse)
         {
-            //log0(INFO, kModName, __func__, "Sync EDC Log to server");
-            ret = sync_log(p_ctx);
-            if (ret != kSuccess)
-            {
-                log0(ERROR, kModName, __func__, "Sync EDC log to server fail!");
-                sync_success = kFalse;
-            }
-            else
-            {
-                sync_success = kTrue;
-            }
-        }
-        else
-        {
-            // Check connected and reconnect here, due to the interval of this thread is most short
-            log0(INFO, kModName, __func__, "Server is disconnected, re-connect to server");
+            log0(ERROR, kModName, __func__, "Agent is disconnect, try to re-connect.");
             if (connect_server(p_ctx) != kSuccess)
             {
                 log0(ERROR, kModName, __func__, "Re-Connect to agent failure");
-                sync_success = kFalse;
             }
             else
             {
-                if (sync_log(p_ctx) != kSuccess)
-                {
-                    log0(ERROR, kModName, __func__, "Sync edc log to server fail!");
-                    sync_success = kFalse;
-                }
-                else
-                {
-                    sync_success = kTrue;
-                }
+                log0(INFO, kModName, __func__, "Re-Connect to agent success");
             }
         }
 
-        if (sync_success == kFalse) 
+        if (p_ctx->connected == kTrue)
         {
-            if (save_log_to_local(p_ctx, kEDCLogFile) == kFailure)
+            if (sync_log(p_ctx) != kSuccess)
             {
-                log0(ERROR, kModName, __func__, "Save EDC log to file failure!");
-                // TODO program should dead
+                log0(ERROR, kModName, __func__, "Sync edc log to server fail!");
             }
         }
     }
@@ -911,7 +892,7 @@ void sync_log_thr_func(void *ctx)
 
 int append_edc_log(EDC_CTX *p_ctx, const EDC_LOG_TYPE type, const char *content)
 {
-    char cur_date[kMaxYmdHMSLen + 1];
+    char cur_date[kMaxYmdHMSMSLen + 1];
 
     if (!p_ctx || !content)
     {
@@ -919,7 +900,7 @@ int append_edc_log(EDC_CTX *p_ctx, const EDC_LOG_TYPE type, const char *content)
         return kFailure;
     }
 
-    if (get_cur_YmdHMS_r(cur_date, kMaxYmdHMSLen + 1, kFalse) == NULL)
+    if (get_cur_YmdHMS_MS_r(cur_date, kMaxYmdHMSMSLen + 1) == NULL)
     {
         log0(ERROR, kModName, __func__, "Get current datetime fail");
         return kFailure;
@@ -1007,6 +988,35 @@ char* get_cur_YmdHMS_r(char *buf, int buf_len, int no_seperate)
     return buf;
 }
 
+char* get_cur_YmdHMS_MS_r(char *buf, int buf_len)
+{
+    //time_t time_cur;
+    struct timeval tv;
+    struct timezone tz;
+    struct tm local_time = {0};
+
+    if (!buf)
+    {
+        log0(ERROR, kModName, __func__, "Parameter Fail!");
+        return NULL;
+    }
+
+    strncpy(buf, "0000-00-00 00:00:00:000000", buf_len);
+
+    gettimeofday(&tv, &tz);
+
+    localtime_r(&tv.tv_sec, &local_time);
+    snprintf(buf, buf_len, kYmdHMS_MS,
+            local_time.tm_year+1900,
+            local_time.tm_mon+1,
+            local_time.tm_mday,
+            local_time.tm_hour,
+            local_time.tm_min,
+            local_time.tm_sec,
+            tv.tv_usec);
+
+    return buf;
+}
 
 int save_log_to_local(EDC_CTX *p_ctx, const char *log_tmp_file)
 {
@@ -1062,15 +1072,18 @@ int sync_log(EDC_CTX *p_ctx)
 {
     // for file log
     FILE *fp_log;
+    FILE *fp_tmp;
     char line[kMaxEDCLogLen];
-    char log_buf[kMaxMemEDCLog * kMaxEDCLogLen];
-    char *buf_ptr;
-    int buf_size;
-    int line_len;
+    char send_buf[kMaxEDCLogLen];
+    char recv_buf[kMaxEDCLogLen];
+    int len;
 
     // for memory log
     int log_count;
     char *cur_edc_log;
+    int network_flag;
+    int ok_flag;
+    int write_flag;
 
     if (!p_ctx)
     {
@@ -1078,7 +1091,14 @@ int sync_log(EDC_CTX *p_ctx)
         return kFailure;
     }
     memset(line, 0, kMaxEDCLogLen);
-    memset(log_buf, 0, kMaxMemEDCLog * kMaxEDCLogLen);
+    memset(send_buf, 0, kMaxEDCLogLen);
+    memset(recv_buf, 0, kMaxEDCLogLen);
+
+    if (!(fp_tmp = fopen(kEDCTempLogFile, "w")))
+    {
+        log0(ERROR, kModName, __func__, "Can not open EDC log temp file.");
+        return kFailure;
+    }
 
     //Check local file first
     if (access(kEDCLogFile, F_OK) == kFailure)
@@ -1087,121 +1107,136 @@ int sync_log(EDC_CTX *p_ctx)
     }
     else
     {
-        log0(INFO, kModName, __func__, "Send EDC log which in file to server.");
-        buf_size = sizeof(log_buf);
-        buf_ptr = log_buf;
+        //log0(DEBUG, kModName, __func__, "Send EDC log which in file to server.");
         if (!(fp_log = fopen(kEDCLogFile, "r")))
         {
             log0(ERROR, kModName, __func__, "Can not open EDC log file.");
             return kFailure;
         }
 
-        line_len = snprintf(buf_ptr, buf_size, "%s\t%s\n", kSyncLogCmd, p_ctx->edc_id);
-        buf_size -= line_len;
-        buf_ptr += line_len;
-
+        network_flag = kTrue;
+        write_flag = kTrue;
         while (fgets(line, kMaxEDCLogLen, fp_log) != NULL)
         {
-            if (buf_size > strlen(line) + 1)
+            ok_flag = kTrue;
+            if (network_flag == kTrue && write_flag == kTrue && strlen(line) > 0)
             {
-                line_len = snprintf(buf_ptr, buf_size, "%s\n", line);
-                buf_size -= line_len;
-                buf_ptr += line_len;
-            }
-            else
-            {
-                // If buffer is not enough, send current log
-                if (sock_write(p_ctx->server_fd, log_buf, buf_ptr - log_buf) != buf_ptr - log_buf)
+                len = snprintf(send_buf, kMaxEDCLogLen, "%s\t%s\n%s\n", kSyncLogCmd, p_ctx->edc_id, line);
+
+                if (sock_write(p_ctx->server_fd, send_buf, len) != len)
                 {
                     log0(ERROR, kModName, __func__, "Send log to server fail.");
-                    p_ctx->connected = kFalse;
-                    fclose(fp_log);
-                    return kFailure;
+                    network_flag = kFalse;
+                    continue;
                 }
 
-                // Reset buffer
-                buf_size = sizeof(log_buf);
-                buf_ptr = log_buf;
-                line_len = snprintf(buf_ptr, buf_size, "%s\t%s\n", kSyncLogCmd, p_ctx->edc_id);
-                buf_size -= line_len;
-                buf_ptr += line_len;
-                // Append current line
-                line_len = snprintf(buf_ptr, buf_size, "%s\n", line);
-                buf_size -= line_len;
-                buf_ptr += line_len;
+                if (sock_read(p_ctx->server_fd, recv_buf, kMaxEDCLogLen) < 0)
+                {
+                    log0(ERROR, kModName, __func__, "Receive message from server fail.");
+                    network_flag = kFalse;
+                    continue;
+                }
+
+                if (strncmp(recv_buf, kSyncLogDupCmd, len) == 0)
+                {
+                    log1(INFO, kModName, __func__, "Sync duplicate log: %s", line);
+                }
+                else if (strncmp(recv_buf, kSyncLogOKCmd, len) == 0)
+                {
+                    log0(DEBUG, kModName, __func__, "Sync log success with return SYNC_LOG_OK ");
+                }
+                else
+                {
+                    log1(INFO, kModName, __func__, "Sync log return malformed: %s", recv_buf);
+                    ok_flag = kFalse;
+                }
+            }
+
+            // There is a little weired, write error but still try to write...
+            // So be it...
+            // TODO if write_flag == kFalse
+            // 1. read remind data from file
+            // 2. Unlinkg original file 
+            // 3. Write remind data to temp file
+            if (network_flag == kFalse || ok_flag == kFalse || write_flag == kFalse)
+            {
+                if (fprintf(fp_tmp, "%s\n", line) != strlen(line))
+                {
+                    log1(ERROR, kModName, __func__, "Write to temp log file failure: %s", kEDCTempLogFile);
+                    write_flag = kFalse;
+                }
             }
         }
+
         fclose(fp_log);
-
-        if (sock_write(p_ctx->server_fd, log_buf, buf_ptr - log_buf) != buf_ptr - log_buf)
-        {
-            log0(ERROR, kModName, __func__, "Send log to server fail.");
-            p_ctx->connected = kFalse;
-            return kFailure;
-        }
-
         if (unlink(kEDCLogFile) != kSuccess)
         {
             log0(ERROR, kModName, __func__, "Delete sended EDC log file failure!");
-            return kFailure;
         }
     }
 
     //2. Send memory content if exist
-    buf_size = sizeof(log_buf);
-    buf_ptr = log_buf;
-    line_len = snprintf(buf_ptr, buf_size, "%s\t%s\n", kSyncLogCmd, p_ctx->edc_id);
-    buf_size -= line_len;
-    buf_ptr += line_len;
     if (p_ctx->edc_log_num > 0)
     {
         log0(INFO, kModName, __func__, "Send EDC log which in memory to server.");
         if (pthread_mutex_lock(&p_ctx->edc_log_mutex))
         {
             log0(ERROR, kModName, __func__, "Lock EDC log mutex failure!");
+            fclose(fp_tmp);
             return kFailure;
         }
 
         log_count = 0;
+        network_flag = kTrue;
+        write_flag = kTrue;
         while (log_count < p_ctx->edc_log_num)
         {
+            ok_flag = kTrue;
             cur_edc_log = p_ctx->edc_tmp_log[log_count];
-            if (buf_size > strlen(cur_edc_log) + 1)
+            if (network_flag == kTrue && write_flag == kTrue)
             {
-                line_len = snprintf(buf_ptr, buf_size, "%s\n", cur_edc_log);
-                buf_size -= line_len;
-                buf_ptr += line_len;
-            }
-            else
-            {
-                // If buffer is not enough, send current log
-                if (sock_write(p_ctx->server_fd, log_buf, buf_ptr - log_buf) != buf_ptr - log_buf)
+                len = snprintf(send_buf, kMaxEDCLogLen, "%s\t%s\n%s\n", kSyncLogCmd, p_ctx->edc_id, cur_edc_log);
+
+                if (sock_write(p_ctx->server_fd, send_buf, len) != len)
                 {
-                    log0(ERROR, kModName, __func__, "Send memory log to server fail.");
-                    p_ctx->connected = kFalse;
-                    pthread_mutex_unlock(&p_ctx->edc_log_mutex);
-                    return kFailure;
+                    log0(ERROR, kModName, __func__, "Send log to server fail.");
+                    network_flag = kFalse;
+                    log_count++;
+                    continue;
                 }
 
-                // Reset buffer
-                buf_size = sizeof(log_buf);
-                buf_ptr = log_buf;
-                line_len = snprintf(buf_ptr, buf_size, "%s\t%s\n", kSyncLogCmd, p_ctx->edc_id);
-                buf_size -= line_len;
-                buf_ptr += line_len;
-                // Append current line
-                line_len = snprintf(buf_ptr, buf_size, "%s\n", cur_edc_log);
-                buf_size -= line_len;
-                buf_ptr += line_len;
+                if (sock_read(p_ctx->server_fd, recv_buf, kMaxEDCLogLen) < 0)
+                {
+                    log0(ERROR, kModName, __func__, "Receive message from server fail.");
+                    network_flag = kFalse;
+                    log_count++;
+                    continue;
+                }
+
+                if (strncmp(recv_buf, kSyncLogDupCmd, len) == 0)
+                {
+                    log1(INFO, kModName, __func__, "Sync duplicate log: %s", line);
+                }
+                else if (strncmp(recv_buf, kSyncLogOKCmd, len) == 0)
+                {
+                    log0(DEBUG, kModName, __func__, "Sync log success with return SYNC_LOG_OK ");
+                }
+                else
+                {
+                    log1(INFO, kModName, __func__, "Sync log return malformed: %s", recv_buf);
+                    ok_flag = kFalse;
+                }
+            }
+
+            if (network_flag == kFalse || ok_flag == kFalse || write_flag == kFalse)
+            {
+                if (fprintf(fp_tmp, "%s\n", line) != strlen(line))
+                {
+                    log1(ERROR, kModName, __func__, "Write to temp log file failure: %s", kEDCTempLogFile);
+                    write_flag = kFalse;
+                }
             }
             log_count++;
-        }
-
-        if (sock_write(p_ctx->server_fd, log_buf, buf_ptr - log_buf) != buf_ptr - log_buf)
-        {
-            p_ctx->connected = kFalse;
-            pthread_mutex_unlock(&p_ctx->edc_log_mutex);
-            return kFailure;
         }
 
         p_ctx->edc_log_num = 0;
@@ -1209,8 +1244,18 @@ int sync_log(EDC_CTX *p_ctx)
         if (pthread_mutex_unlock(&p_ctx->edc_log_mutex))
         {
             log0(ERROR, kModName, __func__, "Unlock EDC log mutex failure!");
+            fclose(fp_tmp);
             return kFailure;
         }
+    }
+
+    fclose(fp_tmp);
+
+    if (rename(kEDCTempLogFile, kEDCLogFile) == kFailure)
+    {
+        log3(ERROR, kModName, __func__, "Rename tmp EDCLog file %s -> %s failure, %s",
+                kEDCTempLogFile, kEDCLogFile, strerror(errno));
+        return kFailure;
     }
 
     return kSuccess;
@@ -2645,6 +2690,7 @@ int load_server_set(EDC_CTX *p_ctx, const char *ini_file)
         return kFailure;
     }
 
+    log1(DEBUG, kModName, __func__, "Open Server setup file: %s", ini_file);
     if (!(fpSetting = fopen(ini_file, "r")))
     {
         log1(ERROR, kModName, __func__, "Can not open server ini file: %s",
@@ -2707,7 +2753,7 @@ int load_server_set(EDC_CTX *p_ctx, const char *ini_file)
     log1(INFO, kModName, __func__, 
             "Server port: %d", p_ctx->server_port);
     log1(INFO, kModName, __func__, 
-            "id: %s", p_ctx->edc_id);
+            "edc id: %s", p_ctx->edc_id);
     log1(INFO, kModName, __func__, 
             "passwd: %s", p_ctx->fn_passwd);
 
@@ -3087,24 +3133,28 @@ int idle_state(EDC_CTX *p_ctx)
         return kFailure;
     }
 
+    log0(DEBUG, kModName, __func__, "Clean LCD Buffer");
     if (clean_lcd(p_ctx) < kSuccess)
     {
         log0(FATAL, kModName, __func__, "Clean LCD failure.");
         return kFailure;
     }
 
+    log0(DEBUG, kModName, __func__, "Setup LED as Blue");
     if (set_led(p_ctx, kLEDBlue) < kSuccess)
     {
         log0(ERROR, kModName, __func__, "Can not set LED.");
         return kFailure;
     }
 
+    log0(DEBUG, kModName, __func__, "Setup backlight on");
     if (set_backlight(p_ctx, 0xff))
     {
         log0(ERROR, kModName, __func__, "Can not open backlight.");
         return kFailure;
     }
 
+    log0(DEBUG, kModName, __func__, "Flush COM port buffer");
     serFlushCOM(&p_ctx->com_ctx);
 
     // Initial user data
@@ -4880,6 +4930,7 @@ int get_ipv4_from_keypad(EDC_CTX *p_ctx, const char* prompt,
 
 int buzzer(int msec)
 {
+    log1(DEBUG, kModName, __func__, "Buzzer for %d ms", msec);
     if (device_power(DEVICE_BUZZER_2, 1))
     {
         log0(ERROR, kModName, __func__, "Can't open buzzer!");
@@ -4962,6 +5013,7 @@ int set_led(EDC_CTX* p_ctx, unsigned int conf)
     int ret;
     int result = kSuccess;
     int failure_count = 0;
+    unsigned int setup_value;
     const int lcd_offset = 20;
 
     if (pthread_mutex_lock(&p_ctx->lkp_ctx_mutex))
@@ -4973,8 +5025,10 @@ int set_led(EDC_CTX* p_ctx, unsigned int conf)
     for (i = 0; i < kLEDNum; i++)
     {
         while (kTrue)
-        {
-            ret = device_power(i + lcd_offset, (conf >> i & 0x01));
+         {
+            setup_value = (conf >> i & 0x01);
+            log3(DEBUG, kModName, __func__, "Setup LED %d as %d, count: %d", i, setup_value, failure_count);
+            ret = device_power(i + lcd_offset, setup_value);
             if (ret < kSuccess)
             {
                 log2(ERROR, kModName, __func__,
@@ -5015,6 +5069,7 @@ int set_backlight(EDC_CTX* p_ctx, unsigned char u8_type)
             return kFailure;
         }
 
+        log2(DEBUG, kModName, __func__, "Setup keypad backlight: %d, count: %d", u8_type, failure_count);
         ret = lkp_set_backlight(p_ctx->lkp_ctx, u8_type);
 
         if (pthread_mutex_unlock(&p_ctx->lkp_ctx_mutex))
@@ -5106,12 +5161,13 @@ int show_line(EDC_CTX *p_ctx, int line, const char *string)
 
     while (kTrue)
     {
+        log1(DEBUG, kModName, __func__, "Clean LCD Buffer, count: %d", failure_count);
         ret = lcd_clean_buffer(p_ctx->lkp_ctx, 0,
                 kFontHeight * line, kScreenWidth, kFontHeight);
         if (ret < kSuccess)
         {
             log2(ERROR, kModName, __func__,
-                    "Clean buffer error, line: %d, ret: %d", line, ret);
+                    "Clean LCD buffer error, line: %d, ret: %d", line, ret);
             if (++failure_count > kMaxFailLimit)
             {
                 result = kFailure;
@@ -5121,11 +5177,12 @@ int show_line(EDC_CTX *p_ctx, int line, const char *string)
             continue;
         }
 
+        log3(DEBUG, kModName, __func__, "Draw text on LCD buffer, text: %s, line: %d, count: %d", string, line, failure_count);
         ret = lcd_draw_text_16f(p_ctx->lkp_ctx, 0, kFontHeight * line, string, 0);
         if (ret < kSuccess)
         {
             log2(ERROR, kModName, __func__,
-                    "Draw buffer error, line: %d, ret: %d", line, ret);
+                    "Draw LCD buffer error, line: %d, ret: %d", line, ret);
             if (++failure_count > kMaxFailLimit)
             {
                 result = kFailure;
@@ -5135,6 +5192,7 @@ int show_line(EDC_CTX *p_ctx, int line, const char *string)
             continue;
         }
 
+        log1(DEBUG, kModName, __func__, "Print out to LCD buffer, count: %d", failure_count);
         ret = lcd_print_out(p_ctx->lkp_ctx);
         if (ret < kSuccess)
         {
@@ -5176,6 +5234,7 @@ int clean_lcd(EDC_CTX *p_ctx)
 
     while (kTrue)
     {
+        log1(DEBUG, kModName, __func__, "Clean LCD screen, count: %d", failure_count);
         ret = lcd_clean_scr(p_ctx->lkp_ctx);
         if (ret < kSuccess)
         {
@@ -5190,6 +5249,7 @@ int clean_lcd(EDC_CTX *p_ctx)
             continue;
         }
 
+        log1(DEBUG, kModName, __func__, "Clean LCD buffer, count: %d", failure_count);
         ret = lcd_clean(p_ctx->lkp_ctx);
         if (ret < kSuccess)
         {
@@ -5219,12 +5279,10 @@ int clean_lcd(EDC_CTX *p_ctx)
 
 int read_rfid(EDC_CTX *p_ctx)
 {
-    int i;
     int len = 0;
     char *pos;
     int card_sn;
     unsigned char pcData[kMaxReadRFIDLen];
-
 
     if (!p_ctx)
     {
@@ -5233,69 +5291,45 @@ int read_rfid(EDC_CTX *p_ctx)
     }
 
     pos = p_ctx->curr_card_sn;
-
     memset(pcData, '\0', kMaxReadRFIDLen);
+
+    //log1(DEBUG, kModName, __func__, "Read date from RFID, COM: %s", p_ctx->com_ctx.port);
     len = serReadCOM(&p_ctx->com_ctx, pcData, kMaxReadRFIDLen);
     if (len < kMaxCardReadLen)
     {
-
-        //log1(DEBUG, kModName, __func__,
-        //        "Read string from RFID too short, length: %d", len);
+        // If no close card, this line always be run, comment it!
+        //log1(DEBUG, kModName, __func__, "Read data from RFID too short, data:%s (%d)", pcData, len);
         return kFailure;
     }
 
-
     //CLD test card number
-    unsigned char temp[kMaxReadRFIDLen];
-    unsigned char *t;
-    t = temp;
-    log0(DEBUG, kModName, __func__, "Read data from RFID hex");
-    for (i = 0; i < len; i++)
-    {
-        *t++ = pcData[i];
-        fprintf(stderr, "%02X ", pcData[i]);
-    }
-    fprintf(stderr, "\n");
-    *t = '\0';
-    log1(DEBUG, kModName, __func__, "Read data from RFID, len: %d", len);
+    //unsigned char temp[kMaxReadRFIDLen];
+    //unsigned char *t;
+    //t = temp;
+    //log0(DEBUG, kModName, __func__, "Read data from RFID hex");
+    //for (i = 0; i < len; i++)
+    //{
+    //    *t++ = pcData[i];
+    //    fprintf(stderr, "%02X ", pcData[i]);
+    //}
+    //fprintf(stderr, "\n");
+    //*t = '\0';
+    //log1(DEBUG, kModName, __func__, "Read data from RFID, len: %d", len);
     // A4 01 FD 12 1C 00 F8 FF 12 E0 90 00
     // 00 00 00 00 00 00 00 00 00 00 00 0A 42 40 64 B4
 
     card_sn = (pcData[kIdxRFIDCardHi] * 256 + pcData[kIdxRFIDCardLow] +
                 (((pcData[kIdxRFIDOffset] & 0x01) == 0x01)?kRFIDOffset:0)) / 2;
 
+    log1(DEBUG, kModName, __func__, "Get RFID Card SN: %08d", card_sn);
     if (card_sn == 0)
     {
+        log0(WARN, kModName, __func__, "Card SN is zero!");
         return kFalse;
     }
 
-    log1(DEBUG, kModName, __func__, "Get RFID Card SN: %08d", card_sn);
     snprintf(p_ctx->curr_card_sn, kMaxCardSNLen + 1, "%08d", card_sn);
     return kSuccess;
-
-    /*
-    // Here is Hex to ASCII
-    if (len > 0 && (pcData[0] == 0xA4 && pcData[1] == 0x01))
-    {
-        for(i = 2; i < kMaxCardReadLen - 2; i++)
-        {
-            unsigned char data = ((pcData[i] >> 4) & 0x0F);
-            if(data < 0x0A)
-                *(pos++) = data + 0x30;
-            else
-                *(pos++) = data + 0x37;
-
-            data = pcData[i] & 0x0F;
-            if(data < 0x0A)
-                *(pos++) = (pcData[i] & 0x0F) + 0x30;
-            else
-                *(pos++) = (pcData[i] & 0x0F) + 0x37;
-
-        }
-        //show_line(p_ctx, 3, p_ctx->curr_card_sn);
-        return kSuccess;
-    }
-    */
 }
 
 int is_valid_card(EDC_CTX *p_ctx)
@@ -6086,6 +6120,7 @@ int serFlushCOM(COM_CTX *p_ctx)
 
     while ((i = read(p_ctx->com_handle, buf, 32)) > 0 )
     {
+        //Just read and drop, do nothing
     }
 
     return kSuccess;
