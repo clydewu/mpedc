@@ -725,7 +725,7 @@ namespace EDCServer
                                     }
                                     else
                                     {
-                                        EventLog.WriteEntry("EDCAgent", "Client thread insert into CopyCount: " + recv_list[i], EventLogEntryType.SuccessAudit);
+                                        EventLog.WriteEntry("EDCAgent", "Client thread ins  ert into CopyCount: " + recv_list[i], EventLogEntryType.SuccessAudit);
                                     }
                                 }
                             }

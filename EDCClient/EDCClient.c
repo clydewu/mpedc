@@ -18,7 +18,7 @@
 #include "lib/matrix500.h"
 #include "lib/libmpedc.h"
 
-#define EDC_CLIENT_VERSION  "1.18"
+#define EDC_CLIENT_VERSION  "1.20a"
 #define MAX_COM_PORT_LEN    (64)
 #define MAX_COM_CMD_BUFFER  (9)
 #define MAX_PROJECT_LEN     (4)
@@ -123,6 +123,7 @@ const char kVersion[] = EDC_CLIENT_VERSION;
 const char kEmpListFile[] = "./employee.list";
 const char kEDCListFile[] = "./edc.list";
 const char kProjListFile[] = "./projects.list";
+const char kEmpListDLFile[] = "./employee.list.dl";
 const char kEDCLogFile[] = "./edc_tmp.log";
 const char kServerIni[] = "./edc_setup.conf";
 const char kNetworkIni[] = "./edc_network.conf";
@@ -231,6 +232,7 @@ const int kConnectTypeMax = 4;
 const int kMaxReaderModeTypeLen = 8;
 const int kReaderModeMin= 0;
 const int kReaderModeMax = 1;
+const int kMaxUpdateEmpListLen = 1;
 const int kMaxSocketPortMin = 1;
 const int kMaxSocketPortMax = 65535;
 const int kMaxPasswdLen = MAX_PASSWD_LEN;
@@ -304,6 +306,8 @@ const char STR_SETUP_GATEWAY[] = "設定Gateway ";
 const char STR_SETUP_SERVER_IP[] = "設定SERVER IP";
 const char STR_SETUP_SERVER_PORT[] = "設定SERVER PORT";
 const char STR_SETUP_FN_PASSWD[] = "設定管理密碼";
+const char STR_SETUP_UPDATE_EMP[] = "儲存時更新員工";
+const char STR_SETUP_UPDATE_EMP_PROMOPT[] = "(0:否, 1:是)";
 const char STR_SETUP_CONFIRM[] = "確定/取消";
 const char STR_SETUP_WAIT[] = "寫入中...";
 const char STR_SETUP_CURRENT[] = "目前:";
@@ -385,6 +389,7 @@ typedef enum _fn_state
     SET_SRV_IP,
     SET_SRV_PORT,
     SET_FN_PASS,
+    SET_UPDATE_EMP,
     SET_CONFIRM
 } FN_STATE;
 
@@ -1583,6 +1588,65 @@ int sync_lists(EDC_CTX *p_ctx)
                         tmp_proj_list);
             }
         }
+    }
+
+    return kSuccess;
+}
+
+int sync_emp_list(EDC_CTX* p_ctx)
+{
+    EMP_DATA tmp_emp_list[kMaxEmpListSize];
+    int len;
+    int ret;
+
+    log0(INFO, kModName, __func__, "Download Full EDC List to buffer");
+    len = dl_remote_list_to_file(p_ctx, kSyncEmpCmd, kEmpListDLFile);
+    if (len < 0)
+    {
+        log2(ERROR, kModName, __func__, "Download full EDC list failure: %s, use original list: %s",
+                kEmpListDLFile, kEmpListFile);
+    }
+    else
+    {
+        ret = load_employee_list(tmp_emp_list, kMaxEmpListSize, kEmpListDLFile , NULL);
+        if (ret < 0)
+        {
+            log2(ERROR, kModName, __func__, "Downloaded employee list: %s is malformed, use original list: %s",
+                kEmpListDLFile, kEmpListFile);
+        }
+        else
+        {
+            log2(INFO, kModName, __func__, "Move new employee list: %s to local employee list: %s",
+                kEmpListDLFile, kEmpListFile);
+            if (rename(kEmpListDLFile, kEmpListFile) != kSuccess)
+            {
+                log2(ERROR, kModName, __func__,
+                    "Move temp file %s to employee file %s failure"
+                    ", use original file\n", kEmpListDLFile, kEmpListFile);
+            }
+        }
+    }
+
+    log0(INFO, kModName, __func__, "Reload employee list.");
+    if (access(kEmpListFile, F_OK) != kFailure)
+    {
+        ret = load_employee_list(p_ctx->emp_list, kMaxEmpListSize,
+                    kEmpListFile, &p_ctx->emp_mutex);
+        if ( ret >= 0)
+        {
+            p_ctx->emp_num = ret;
+            log1(INFO, kModName, __func__, "Load local employee list: %d", ret);
+        }
+        else if (ret < 0)
+        {
+            log0(ERROR, kModName, __func__, "Load local employee list failure.");
+            return kFailure;
+        }
+    }
+    else
+    {
+        p_ctx->emp_num = 0;
+        log1(WARN, kModName, __func__, "Local employee list is not exist: %s", kEmpListFile);
     }
 
     return kSuccess;
@@ -2848,7 +2912,7 @@ int dl_remote_list_to_file(EDC_CTX *p_ctx, const char* sync_cmd, const char* fil
         return kFailure;
     }
 
-    if(!(fp_list = fopen(file_name, "w")))
+    if (!(fp_list = fopen(file_name, "w")))
     {
         log0(ERROR, kModName, __func__, "Can not open local temp list.");
         return kFailure;
@@ -3108,7 +3172,7 @@ int idle_state(EDC_CTX *p_ctx)
     serFlushCOM(&p_ctx->com_ctx);
 
     // Initial user data
-    memset(&p_ctx->curr_card_sn, 0, kMaxCardSNLen);
+    memset(&p_ctx->curr_card_sn, 0, kMaxCardSNLen + 1);
     memset(&p_ctx->project_code, 0, kMaxProjectCodeLen + 1);
     p_ctx->curr_emp_idx = 0;
 
@@ -4291,6 +4355,8 @@ int setup_state(EDC_CTX* p_ctx)
     char new_server_ip[kMaxIPLen + 1];
     char new_server_port_str[kMaxPortLen + 1];
     char new_fn_passwd[kMaxPasswdLen + 1];
+    char update_emp_list_str[kMaxUpdateEmpListLen + 1];
+    int update_emp_list;
     int new_server_port;
     char *end_ptr;
 
@@ -4363,6 +4429,9 @@ int setup_state(EDC_CTX* p_ctx)
     snprintf(new_server_port_str, kMaxPortLen + 1, "%d", p_ctx->server_port);
     strncpy(new_fn_passwd, p_ctx->fn_passwd, kMaxPasswdLen + 1);
     new_server_port = p_ctx->server_port;
+
+    snprintf(update_emp_list_str, kMaxUpdateEmpListLen + 1, "%d", kFalse);
+    update_emp_list = kFalse;
 
     state = SET_PRT_TYPE;
     //TODO so dirty here...
@@ -4538,7 +4607,29 @@ int setup_state(EDC_CTX* p_ctx)
                 show_line(p_ctx, 0, STR_SETUP_FN_PASSWD);
                 state_ret = get_str_from_keypad(p_ctx, STR_EMPTY,
                         new_fn_passwd, kMaxPasswdLen + 1, 1);
-                //fprintf(stderr, "ret: %d, value: %s\n", state_ret, new_edc_id);
+                break;
+            case SET_UPDATE_EMP:
+                show_line(p_ctx, 0, STR_SETUP_UPDATE_EMP);
+                show_line(p_ctx, 2, STR_SETUP_UPDATE_EMP_PROMOPT);
+                show_line(p_ctx, 3, STR_EMPTY);
+                while (kTrue)
+                {
+                    state_ret = get_str_from_keypad(p_ctx, STR_EMPTY,
+                            update_emp_list_str, kMaxEDCIDLen + 1, 1);
+                    if (state_ret != kFailure)
+                    {
+                        update_emp_list = (int)strtol(update_emp_list_str, &end_ptr, 10);
+                        if (*end_ptr != '\0'
+                                || !(update_emp_list == kFalse || update_emp_list == kTrue))
+                        {
+                            show_line(p_ctx, 3, STR_SETUP_ERROR);
+                            buzzer((kMicroPerSecond / 10) * 1);
+                            usleep(kMicroPerSecond);
+                            continue;
+                        }
+                        break;
+                    }
+                }
                 break;
             case SET_CONFIRM:
                 show_line(p_ctx, 0, STR_SETUP_CONFIRM);
@@ -4579,6 +4670,7 @@ int setup_state(EDC_CTX* p_ctx)
         // Second level action 
         if (state != SET_CONFIRM)
         {
+            // Move to previous or neext setup
             if (state_ret == kASCIIUp && state != SET_PRT_TYPE)
             {
                 state--;
@@ -4590,6 +4682,7 @@ int setup_state(EDC_CTX* p_ctx)
         }
         else
         {
+            // In confirm screen, you can goto previous setup or save or cancel
             if (state_ret == kASCIIUp)
             {
                 state--;
@@ -4671,6 +4764,16 @@ int setup_state(EDC_CTX* p_ctx)
                 if (connect_server(p_ctx) != kSuccess)
                 {
                     log0(ERROR, kModName, __func__, "Connect to EDCAgent failure.");
+                }
+
+                if (update_emp_list == kTrue)
+                {
+                    log0(INFO, kModName, __func__, "Set update_emp_list == true, force download full employees list");
+                    if (sync_emp_list(p_ctx) != kSuccess)
+                    {
+                        log0(ERROR, kModName, __func__, "Load new employees list failure in setup state!");
+                        return kFailure;
+                    }
                 }
 
                 break;
@@ -5261,16 +5364,17 @@ int read_rfid(EDC_CTX *p_ctx)
     // A4 01 FD 12 1C 00 F8 FF 12 E0 90 00
     // 00 00 00 00 00 00 00 00 00 00 00 0A 42 40 64 B4
 
-    card_sn = (pcData[kIdxRFIDCardHi] * 256 + pcData[kIdxRFIDCardLow] +
-                (((pcData[kIdxRFIDOffset] & 0x01) == 0x01)?kRFIDOffset:0)) / 2;
+    //card_sn = (pcData[kIdxRFIDCardHi] * 256 + pcData[kIdxRFIDCardLow] +
+    //            (((pcData[kIdxRFIDOffset] & 0x01) == 0x01)?kRFIDOffset:0)) / 2;
+    card_sn = ((pcData[len - 2] * 256 + pcData[len - 1]) / 2) + (((pcData[len - 3] & 0x01) == 0x01)?kRFIDOffset:0);
 
     if (card_sn == 0)
     {
         return kFalse;
     }
 
-    log1(DEBUG, kModName, __func__, "Get RFID Card SN: %08d", card_sn);
-    snprintf(p_ctx->curr_card_sn, kMaxCardSNLen + 1, "%08d", card_sn);
+    log1(DEBUG, kModName, __func__, "Get RFID Card SN: %016d", card_sn);
+    snprintf(p_ctx->curr_card_sn, kMaxCardSNLen + 1, "%016d", card_sn);
     return kSuccess;
 
     /*
@@ -5475,28 +5579,28 @@ int load_employee_list(EMP_DATA *p_list, const int list_size,
     {
         cur_ptr = line;
         if ((get_len = get_str_before_char(cur_ptr, kTab,
-                        list_ptr->dep_name, MAX_DEP_NAME_LEN + 1)) == kFailure)
+                        list_ptr->dep_name, kMaxDepartmentNameLen + 1)) == kFailure)
         {
             goto LOAD_EMP_FAIL_LINE;
         }
 
         cur_ptr += (get_len + 1);   // Include tab
         if ((get_len = get_str_before_char(cur_ptr, kTab,
-                        list_ptr->dep_no, MAX_DEP_NO_LEN + 1)) == kFailure)
+                        list_ptr->dep_no, kMaxDepartmentNOLen + 1)) == kFailure)
         {
             goto LOAD_EMP_FAIL_LINE;
         }
 
         cur_ptr += (get_len + 1);
         if ((get_len = get_str_before_char(cur_ptr, kTab,
-                        list_ptr->emp_no, MAX_EMP_NO_LEN + 1)) == kFailure)
+                        list_ptr->emp_no, kMaxEmpNOLen + 1)) == kFailure)
         {
             goto LOAD_EMP_FAIL_LINE;
         }
 
         cur_ptr += (get_len + 1);
         if ((get_len = get_str_before_char(cur_ptr, kTab,
-                        list_ptr->card_sn, MAX_CARD_SN_LEN + 1)) == kFailure)
+                        list_ptr->card_sn, kMaxCardSNLen + 1)) == kFailure)
         {
             goto LOAD_EMP_FAIL_LINE;
         }
