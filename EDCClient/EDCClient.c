@@ -18,7 +18,7 @@
 #include "lib/matrix500.h"
 #include "lib/libmpedc.h"
 
-#define EDC_CLIENT_VERSION  "1.20a"
+#define EDC_CLIENT_VERSION  "1.22"
 #define MAX_COM_PORT_LEN    (64)
 #define MAX_COM_CMD_BUFFER  (9)
 #define MAX_PROJECT_LEN     (4)
@@ -232,7 +232,7 @@ const int kConnectTypeMax = 4;
 const int kMaxReaderModeTypeLen = 8;
 const int kReaderModeMin= 0;
 const int kReaderModeMax = 1;
-const int kMaxUpdateEmpListLen = 1;
+const int kMaxUpdateEmpListLen = 2;
 const int kMaxSocketPortMin = 1;
 const int kMaxSocketPortMax = 65535;
 const int kMaxPasswdLen = MAX_PASSWD_LEN;
@@ -1040,7 +1040,7 @@ int save_log_to_local(EDC_CTX *p_ctx, const char *log_tmp_file)
     // 1. write to files
     while (i < p_ctx->edc_log_num)
     {
-        if (fprintf(fp_log, "%s\n", p_ctx->edc_tmp_log[i]) <= 0)
+        if (fprintf(fp_log, "%s", p_ctx->edc_tmp_log[i]) <= 0)
         {
             log0(ERROR, kModName, __func__, "Write to temp log file failure");
             pthread_mutex_unlock(&p_ctx->edc_log_mutex);
@@ -1109,7 +1109,7 @@ int sync_log(EDC_CTX *p_ctx)
         {
             if (buf_size > strlen(line) + 1)
             {
-                line_len = snprintf(buf_ptr, buf_size, "%s\n", line);
+                line_len = snprintf(buf_ptr, buf_size, "%s", line);
                 buf_size -= line_len;
                 buf_ptr += line_len;
             }
@@ -1131,7 +1131,7 @@ int sync_log(EDC_CTX *p_ctx)
                 buf_size -= line_len;
                 buf_ptr += line_len;
                 // Append current line
-                line_len = snprintf(buf_ptr, buf_size, "%s\n", line);
+                line_len = snprintf(buf_ptr, buf_size, "%s", line);
                 buf_size -= line_len;
                 buf_ptr += line_len;
             }
@@ -1195,7 +1195,7 @@ int sync_log(EDC_CTX *p_ctx)
                 buf_size -= line_len;
                 buf_ptr += line_len;
                 // Append current line
-                line_len = snprintf(buf_ptr, buf_size, "%s\n", cur_edc_log);
+                line_len = snprintf(buf_ptr, buf_size, "%s", cur_edc_log);
                 buf_size -= line_len;
                 buf_ptr += line_len;
             }
@@ -4442,6 +4442,7 @@ int setup_state(EDC_CTX* p_ctx)
         {
             case SET_PRT_TYPE:
                 show_line(p_ctx, 0, STR_SETUP_PRT_CON_TYPE);
+                show_line(p_ctx, 2, STR_EMPTY);
                 show_line(p_ctx, 3, STR_EMPTY);
                 while (kTrue)
                 {
@@ -4465,6 +4466,7 @@ int setup_state(EDC_CTX* p_ctx)
                 break;
             case SET_READER_TYPE:
                 show_line(p_ctx, 0, STR_SETUP_READER_TYPE);
+                show_line(p_ctx, 2, STR_EMPTY);
                 show_line(p_ctx, 3, STR_EMPTY);
                 while (kTrue)
                 {
@@ -4493,6 +4495,7 @@ int setup_state(EDC_CTX* p_ctx)
                 break;
             case SET_EDC_IP:
                 show_line(p_ctx, 0, STR_SETUP_EDC_IP);
+                show_line(p_ctx, 2, STR_EMPTY);
                 show_line(p_ctx, 3, STR_EMPTY);
                 while (kTrue)
                 {
@@ -4515,6 +4518,7 @@ int setup_state(EDC_CTX* p_ctx)
                 break;
             case SET_SUBMASK:
                 show_line(p_ctx, 0, STR_SETUP_SUBMASK);
+                show_line(p_ctx, 2, STR_EMPTY);
                 show_line(p_ctx, 3, STR_EMPTY);
                 while (kTrue)
                 {
@@ -4537,6 +4541,7 @@ int setup_state(EDC_CTX* p_ctx)
                 break;
             case SET_GATEWAY:
                 show_line(p_ctx, 0, STR_SETUP_GATEWAY);
+                show_line(p_ctx, 2, STR_EMPTY);
                 show_line(p_ctx, 3, STR_EMPTY);
                 while (kTrue)
                 {
@@ -4559,6 +4564,7 @@ int setup_state(EDC_CTX* p_ctx)
                 break;
             case SET_SRV_IP:
                 show_line(p_ctx, 0, STR_SETUP_SERVER_IP);
+                show_line(p_ctx, 2, STR_EMPTY);
                 show_line(p_ctx, 3, STR_EMPTY);
                 while (kTrue)
                 {
@@ -4581,6 +4587,7 @@ int setup_state(EDC_CTX* p_ctx)
                 break;
             case SET_SRV_PORT:
                 show_line(p_ctx, 0, STR_SETUP_SERVER_PORT);
+                show_line(p_ctx, 2, STR_EMPTY);
                 show_line(p_ctx, 3, STR_EMPTY);
                 while (kTrue)
                 {
@@ -4605,6 +4612,7 @@ int setup_state(EDC_CTX* p_ctx)
                 break;
             case SET_FN_PASS:
                 show_line(p_ctx, 0, STR_SETUP_FN_PASSWD);
+                show_line(p_ctx, 2, STR_EMPTY);
                 state_ret = get_str_from_keypad(p_ctx, STR_EMPTY,
                         new_fn_passwd, kMaxPasswdLen + 1, 1);
                 break;
@@ -4615,7 +4623,7 @@ int setup_state(EDC_CTX* p_ctx)
                 while (kTrue)
                 {
                     state_ret = get_str_from_keypad(p_ctx, STR_EMPTY,
-                            update_emp_list_str, kMaxEDCIDLen + 1, 1);
+                            update_emp_list_str, kMaxUpdateEmpListLen + 1, 1);
                     if (state_ret != kFailure)
                     {
                         update_emp_list = (int)strtol(update_emp_list_str, &end_ptr, 10);
@@ -4634,6 +4642,7 @@ int setup_state(EDC_CTX* p_ctx)
             case SET_CONFIRM:
                 show_line(p_ctx, 0, STR_SETUP_CONFIRM);
                 show_line(p_ctx, 1, STR_EMPTY);
+                show_line(p_ctx, 2, STR_EMPTY);
                 while (kTrue)
                 {   
                     if (get_press_key(p_ctx, &in_key) < 0)
